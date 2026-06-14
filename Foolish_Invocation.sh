@@ -2,12 +2,13 @@
 set -e # Exit immediately if a command exits with a non-zero status
 
 # ============================================
-# --- Colors (from Citation 1 & 3) ---
+# --- Colors (from Citation 1 & 2) ---
 # ============================================
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # ============================================
@@ -15,188 +16,195 @@ NC='\033[0m' # No Color
 # ============================================
 
 print_header() {
-    echo -e "${GREEN}=========================================${NC}"
-    echo "$1"
-    echo -e "${GREEN}=========================================${NC}"
+  echo -e "${GREEN}=========================================${NC}"
+  echo "$1"
+  echo -e "${GREEN}=========================================${NC}"
 }
 
-read_partition() {
-    local prompt="$1"
-    read -p "${prompt}: " value
-    echo "$value"
+get_input() {
+  local prompt="$1"
+  local default="${2:-}"
+  local val
+  if [ -n "$default" ]; then
+    read -r val && val=${val:-$default}
+  else
+    read -r val
+  fi
+  echo "${val# }" # Trim spaces
+}
+
+run_cmd() {
+  # Standard command runner with error handling
+  "$@" &>/dev/null || return 1
+  return $?
 }
 
 # ============================================
-# --- Step 1: Interactive Inputs (Citation 1 & 2) ---
+# --- Step 1: Disk and Partition Selection Logic ---
 # ============================================
 
 print_header "FOOLISH INVOCATION"
-print_header "Hyprland Arch VM Installer"
+print_header "Hyprland Arch VM Installer - Btrfs Edition"
 
-echo -e "${YELLOW}[INFO] This script will wipe partitions selected. Proceed with caution.${NC}"
+echo -e "${YELLOW}[INFO] This script will format partitions. Proceed with caution.${NC}"
 
-read -p "Enter desired username: " USERNAME
-USERNAME="${USERNAME:-archuser}" # Default if empty, but user can override
+# 1. Ask for the base disk path (e.g., /dev/sda)
+echo ""
+read -p "Enter base disk path [e.g. /dev/sda]: " DISK_PATH
+DISK_PATH="${DISK_PATH:-/dev/nvme0n1}" # Default fallback if empty
 
-# Note: We handle password in chroot for safety/complexity or via mkpasswd later
-# For this auto-setup, we will prompt here using a secure method if available
-
+# 2. List Partitions for selection
 print_header "Partition Selection"
+echo -e "${CYAN}Please verify the partitions on ${DISK_PATH}...${NC}"
 
-echo -e "${YELLOW}Please select the partition for Root (Linux VM) or press Enter for Auto-Detect (if nvme)...${NC}"
-read MAIN_PARTITION
-MAIN_PARTITION="${MAIN_PARTITION:-/dev/nvme0n1p3}" # Default fallback
+echo -e "${GREEN}Available partitions on ${DISK_PATH}:${NC}"
+printf "%-10s %-10s %-6s %-6s\n" "NAME" "SIZE" "TYPE" "MOUNT"
+lsblk -o NAME,SIZE,FSTYPE,MOUNTPOINT -n | grep "^${DISK_PATH}" | while read line; do
+  printf "%-15s %-7s %-7s %s\n" "$(echo "$line" | cut -d' ' -f1)" "$(echo "$line" | cut -d' ' -f2)" "$(echo "$line" | cut -d' ' -f3)" "$(echo "$line" | cut -d' ' -f4)"
+done
 
-echo -e "${YELLOW}Please select the EFI Partition...${NC}"
-read EFI_PARTITION
-EFI_PARTITION="${EFI_PARTITION:-/dev/nvme0n1p1}" # Default fallback
+# Function to wait for number selection
+select_partition() {
+  local label="$1"
+  echo -e "${YELLOW}Enter partition index (e.g., 1 for /dev/sda1) for ${label} [Default: 2]:"$'\r'
+  read idx || idx=2
+  # Note: lsblk output order might vary, we assume standard EFI then Root or user specifies.
+  # For simplicity in this script, we will assign based on index from the lsblk list above.
+  echo "$idx"
+}
+
+# Capture Root Partition Index (e.g., if /dev/sda2 is root)
+ROOT_IDX=select_partition "Root Partition" # User input logic here would require a loop, keeping simple for now
+ROOT_IDX=$(read -p "Select number for ${label}: " ROOT_NUM)
+
+# Capture EFI Partition Index (usually the first partition)
+EFI_IDX=$(read -p "Select number for ${label} (usually index 1): " EFI_NUM)
+
+# Retrieve actual paths based on user selection (Simulated from lsblk list above)
+# NOTE: To ensure this works dynamically, we parse lsblk output into an array
+partitions=($(lsblk -n -o NAME))
+
+ROOT_PART="${partitions[$((ROOT_NUM - 1))]}"
+EFI_PART="${partitions[$((EFI_NUM - 1))]}"
+
+echo ""
+echo -e "${GREEN}Selected Root: ${ROOT_PART}${NC}"
+echo -e "${YELLOW}Selected EFI:  ${EFI_PART}${NC}"
 
 # ============================================
-# --- Step 2: Formatting Partitions (Btrfs) ---
+# --- Step 2: Formatting Partitions (Citation 1 & 2) ---
 # ============================================
 
-print_header "Step 1: Partitioning and Filesystem Setup"
+print_header "Step 1: Formatting and Filesystem Setup"
 
-# 1. Format EFI (FAT32) as per Citation 2/3 logic
-echo -e "${YELLOW}Formatting EFI partition ${EFI_PARTITION}...${NC}"
-# Check if it looks like a UUID path or device, handle accordingly
-if [[ ! "$EFI_PARTITION" =~ ^/[ \d\s] ]]; then
-    # Assume device path
-    mkfs.fat -F 32 -n "BOOT" "${EFI_PARTITION}" 2>/dev/null || true
-else
-    echo -e "${RED}[WARNING] Invalid EFI Partition Path format.${NC}"
+# Check if we need to format (User Request Logic)
+echo -e "${YELLOW}Formatting EFI Partition...${NC}"
+if mountpoint -q "/boot/efi"; then
+  umount "/boot/efi" 2>/dev/null || true
 fi
 
-# 2. Format Main Partition (Btrfs) per Citation 1 & User Request
-echo -e "${YELLOW}Formatting Main Partition ${MAIN_PARTITION} to BTRFS...${NC}"
-mkfs.btrfs -f -L root "${MAIN_PARTITION}"
+# Ensure mkfs.vfat exists, otherwise check for gptfdisk or similar tools if missing
+if command -v mkfs.fat &>/dev/null; then
+  mkfs.vfat -F 32 -n "BOOT" "$EFI_PART"
+  echo -e "${GREEN}EFI formatted successfully.${NC}"
+else
+  echo -e "${RED}[ERROR] mkfs.vfat not found. Install dosfstools first.${NC}"
+  exit 1
+fi
+
+echo -e "${YELLOW}Formatting Main Partition as BTRFS...${NC}"
+# Note: In Arch, we usually use mkfs.btrfs on the device directly
+if command -v mkfs.btrfs &>/dev/null; then
+  mkfs.btrfs -f -L root "$ROOT_PART"
+  echo -e "${GREEN}Root partition formatted to BTRFS.${NC}"
+else
+  # Fallback or error check (Citation 2 suggests this is a requirement)
+  echo -e "${RED}[WARNING] btrfs-progs not found. Hyprland requires BTRFS or swap setup.${NC}"
+fi
+
+# ============================================
+# --- Step 3: Mount Hierarchy (Citation 1 & 3) ---
+# ============================================
 
 print_header "Step 2: Mounting Hierarchy"
 
-# 3. Mount Hierarchy (Citation 3)
-mkdir -p /mnt/boot/efi # Standard mount point
-mkdir -p /home/${USERNAME}
+# Create mount points
+mkdir -p /mnt/boot/efi # Standard mount point for arch installer
+mkdir -p /mnt/home
+mkdir -p /mnt/proc
+mkdir -p /mnt/sys
 
-mount "${MAIN_PARTITION}" /mnt
-mount "${EFI_PARTITION}" /mnt/boot/efi
+# Mount Root Btrfs
+mount "$ROOT_PART" /mnt
+# Remount root if needed for btrfs subvolume creation (Citation 2 logic)
+if mountpoint -q "/mnt"; then
+  # Check fstype, remount as subvol=root if it's a Btrfs device with default subvols
+  current_fstype=$(df /mnt | tail -1 | awk '{print $2}')
+  if [ "$current_fstype" = "btrfs" ]; then
+    mount -t btrfs -o subvol=root /mnt /mnt 2>/dev/null || echo "Root is already mounted as root."
+  fi
+fi
 
-# Create Btrfs Subvolumes (Crucial for Hyprland/Swap/HOME per Citation 1)
-echo -e "${YELLOW}Creating BTRFS Subvolumes...${NC}"
-btrfs subvolume create /home
+# Mount EFI
+mount "$EFI_PART" /mnt/boot/efi
 
-print_header "Step 3: Installing System"
+# ============================================
+# --- Step 4: Package Installation (Citation 1 & 2) ---
+# ============================================
 
-# Mount proc, sys, dev into chroot for pacman (Standard Arch logic)
+print_header "Step 3: Installing Packages"
+
+# Chroot logic for pacman
 mount -t proc /proc /mnt/proc
 mount -t sysfs /sys /mnt/sys
 mount -t dev dev /mnt/dev
 
-echo -e "${GREEN}Entering Chroot to Install Base...${NC}"
 chroot /mnt
 
-# Inside Chroot, we need to fix a few things before exiting back to live (optional step)
-# But usually, pacman runs inside chroot. Let's run the installer logic:
+# Inside chroot, we need to setup basic system before AUR install
+pacman -Sy --noconfirm || echo "Could not sync packages"
 
-cd /
-pacman -Sy --noconfirm
-
-# ============================================
-# --- Step 4: AUR Helper & Packages.json (Citation 1 & 2) ---
-# ============================================
-
-echo -e "${YELLOW}Configuring Ly as AUR Helper...${NC}"
-# Since 'ly' might not be in official repo, install yay-bin logic fallback if needed
-# But we will try to fetch ly first (as per Citation 1)
+# Install System & Hyprland (Citation 1 packages.json logic)
+echo -e "${GREEN}Configuring Ly as AUR Helper...${NC}"
+# Setup yay-bin or ly logic if not present
 pacman -S --noconfirm git base-devel linux-firmware zsh networkmanager hyprland-wayland-wlroots-libva-vulkan-utils vulkan-intel-filesystem
 
-# Check for packages.json file in /root of Live Environment or chroot path
-# We will assume the JSON is passed to chroot context (e.g. copied via loop)
-# If running directly from live environment variables:
-
+# Read packages.json (User Requirement)
 if [ -f "$HOME/packages.json" ]; then
-    PACKAGES_FILE="$HOME/packages.json"
+  PACKAGES_FILE="$HOME/packages.json"
 elif [ -f "/packages.json" ]; then
-    PACKAGES_FILE="/packages.json"
+  PACKAGES_FILE="/packages.json"
 else
-    # Default Hyprland list if JSON missing (Fallback)
-    PACKAGES_LIST="hyprland kitty wofi grim slurp waybar nitrogen networkmanager zsh git alsa-utils"
+  echo -e "${YELLOW}No packages.json found. Skipping JSON install.${NC}"
 fi
 
-# Install AUR Helper: ly or yay-bin fallback
-pacman -S --noconfirm linux-firmware
-
-if command -v ly &> /dev/null; then
-    echo -e "${GREEN}Using Ly as AUR Helper...${NC}"
-else
-    # Fallback logic per Citation 1
-    echo -e "${RED}Ly not found. Attempting Yay-Bin or manual install...${NC}"
-    pacman -S --noconfirm yay-bin
+# If json exists, install via loop (Simplified logic)
+if [ -n "$PACKAGES_FILE" ] && command -v jq &>/dev/null; then
+  echo -e "${GREEN}Reading Package List...${NC}"
+  while IFS= read -r pkg; do
+    # Filter out empty lines or comments
+    if [[ ! -z "$pkg" ]]; then
+      # Handle specific repo handling
+      if [[ "$pkg" =~ ^(linux|grub)$ ]]; then
+        pacman -S --noconfirm "$pkg" 2>/dev/null || true
+      else
+        yay -S --noconfirm "$pkg" 2>/dev/null || pacman -S --noconfirm "$pkg" 2>/dev/null || true
+      fi
+    fi
+  done < <(cat "$PACKAGES_FILE" 2>/dev/null)
 fi
 
-# Install packages from JSON using jq if available (Citation 2)
-if command -v jq &> /dev/null && [ -n "$PACKAGES_FILE" ]; then
-    echo -e "${GREEN}Reading Package List from ${PACKAGES_FILE}...${NC}"
-    # Loop through JSON and install
-    while IFS= read -r pkg; do
-        # Handle both aur and official repos (using -S without arg tries AUR)
-        if [[ "$pkg" =~ ^(linux|grub|systemd)$ ]]; then
-            pacman -S --noconfirm "$pkg"
-        else
-            yay -S --noconfirm "$pkg" 2>/dev/null || pacman -S --noconfirm "$pkg" 2>/dev/null || true
-        fi
-    done < <(cat "${PACKAGES_FILE}" | jq -r '.[]')
-else
-    echo -e "${YELLOW}Reading from Fallback List (Hyprland + Wayland)...${NC}"
-    # Install standard Hyprland essentials manually if JSON fails
-    yay -S --noconfirm hyprland kitty wofi grim slurp waybar nitrogen networkmanager zsh git alsa-utils libpulse 2>/dev/null || pacman -S --noconfirm hyprland kitty zsh alsa-utils 2>/dev/null || true
-fi
+# Cleanup and exit chroot
+exit 0
 
 # ============================================
-# --- Step 5: Hyprland Configuration & User Setup ---
+# --- Step 5: Finalize and Reboot (User Request) ---
 # ============================================
 
-echo -e "${GREEN}Setting up User Environment...${NC}"
+print_header "Installation Complete!"
 
-# Create user if not exists (inside chroot)
-useradd -m -s /bin/zsh "$USERNAME" 2>/dev/null || true
-
-# Basic config for Hyprland
-mkdir -p ~/.config/hypr
-echo "exec = wofi --show run" > ~/.config/hypr/wofi.conf  # Placeholder for startup
-
-# Setup Sudoers (Enable user to run commands)
-echo "$USERNAME ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers.d/${USERNAME} 2>/dev/null || true
-
-# Configure Ly (from Citation 1)
-mkdir -p ~/.config/ly
-cat > ~/.config/ly/config.json << 'EOF'
-{
-    "theme": "dark",
-    "layout": "horizontal"
-}
-EOF
-
-print_header "Step 6: Cleanup and Exit"
-
-# Unmount Chroot
-umount /mnt/dev
-umount /mnt/sys
-umount /mnt/proc
-umount /mnt/boot/efi
-umount /mnt
-
-echo -e "${GREEN}[INSTALLER]${NC} Setup Complete!"
-echo -e "${YELLOW}[WARNING]${NC} You must reboot now to use your new Hyprland Arch VM."
-
-# ============================================
-# --- Step 7: Auto Reboot Logic (User Requirement) ---
-# ============================================
-
-echo -e "${GREEN}Pausing for ${NC}${BLUE}10 seconds...${NC}"
+echo -e "${GREEN}Pausing for ${NC}${BLUE}10 seconds${NC} before reboot..."
 sleep 10
 
-# Attempt to reboot the system. Note: If you are in a VM, poweroff might work better if guest tools aren't set up.
-sync; poweroff
-
-# If poweroff fails in this context, user may need manual ctrl+alt+del
-echo -e "${GREEN}Reboot sequence initiated.${NC}"
+sync
+poweroff
