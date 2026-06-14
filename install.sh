@@ -7,13 +7,11 @@ echo "          FOOLISH INVOCATION - ARCH LINUX DEPLOYMENT            "
 echo "================================================================"
 echo ""
 
-# Ensure jq is available in the live USB to parse our packages.json
 if ! command -v jq &>/dev/null; then
   echo "==> Installing 'jq' on live USB to read packages.json..."
   pacman -Sy --noconfirm jq
 fi
 
-# Parse packages.json into a single space-separated string
 if [ ! -f "packages.json" ]; then
   echo "FATAL: packages.json not found in the current directory."
   exit 1
@@ -21,7 +19,6 @@ fi
 INSTALL_PKGS=$(jq -r '.[] | .[]' packages.json | tr '\n' ' ')
 
 echo "----------------------------------------------------------------"
-echo "Available storage drives:"
 lsblk -dno NAME,SIZE,MODEL | grep -v "loop"
 echo "----------------------------------------------------------------"
 read -p "Enter target disk path (e.g., /dev/nvme0n1 or /dev/sda): " TARGET_DISK
@@ -71,7 +68,6 @@ reflector --latest 15 --protocol https --sort rate --save /etc/pacman.d/mirrorli
 pacman -Sy --noconfirm archlinux-keyring
 
 echo "==> Bootstrap installing modular packages from JSON..."
-# Notice how clean this is now:
 pacstrap -K /mnt $INSTALL_PKGS
 
 genfstab -U /mnt >>/mnt/etc/fstab
@@ -97,32 +93,44 @@ arch-chroot /mnt /bin/bash <<EOF
 
     flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
 
-    # Set up TTY Auto-login for flawless first-boot into Hyprland
+    # 1. FIXED: Create directories FIRST, then clone.
+    su - "$USERNAME" -c "mkdir -p ~/.config/hypr ~/.local/bin"
+    su - "$USERNAME" -c "git clone https://github.com/MichaelWard405/Foolish-Alteration.git ~/.config/Foolish-Alteration"
+    su - "$USERNAME" -c "chmod +x ~/.config/Foolish-Alteration/foolish-alteration.sh"
+    su - "$USERNAME" -c "ln -s ~/.config/Foolish-Alteration/foolish-alteration.sh ~/.local/bin/foolish-alteration"
+
+    # 2. SECURE FIRST-BOOT PIPELINE: Auto-login to TTY1 ONLY for the first run
     mkdir -p /etc/systemd/system/getty@tty1.service.d
     echo -e "[Service]\nExecStart=\nExecStart=-/sbin/agetty --autologin $USERNAME --noclear %I \\\$TERM" > /etc/systemd/system/getty@tty1.service.d/override.conf
-    echo -e "\nif [ -z \"\\\$DISPLAY\" ] && [ \"\\\$XDG_VTNR\" -eq 1 ]; then\n  exec Hyprland\nfi" >> /home/$USERNAME/.bash_profile
 
-    # Clone Foolish Alteration to the user's config directory
-    su - "$USERNAME" -c "git clone https://github.com/MichaelWard405/Foolish-Alteration.git ~/.config/Foolish-Alteration 2>/dev/null || echo 'WARNING: Alteration repo fetch failed'"
-    su - "$USERNAME" -c "mkdir -p ~/.config/hypr ~/.local/bin"
-    
-    # Symlink the app so the user can type 'foolish-alteration' anywhere in the terminal later
-    su - "$USERNAME" -c "ln -s ~/.config/Foolish-Alteration/foolish-alteration.sh ~/.local/bin/foolish-alteration"
+    # We touch a flag file so the system knows it's the first boot
+    su - "$USERNAME" -c "touch ~/.config/hypr/.first_run"
 EOF
 
-# Create the Bootstrap Hyprland config to auto-launch Foolish Alteration TUI on first boot
-cat <<'EOF' >/mnt/home/$USERNAME/.config/hypr/hyprland.conf
+# 3. Create the Bash Profile to launch restricted Hyprland if the flag exists
+cat <<'EOF' >/mnt/home/$USERNAME/.bash_profile
+if [ -z "$DISPLAY" ] && [ "$XDG_VTNR" -eq 1 ]; then
+    if [ -f "$HOME/.config/hypr/.first_run" ]; then
+        exec Hyprland -c ~/.config/hypr/first-boot.conf
+    fi
+    # If not first run, we do nothing. Ly Greeter handles standard logins.
+fi
+EOF
+
+# 4. Create the strictly restricted Hyprland config (No keybinds, no waybar)
+cat <<'EOF' >/mnt/home/$USERNAME/.config/hypr/first-boot.conf
 monitor=,preferred,auto,auto
 misc {
     disable_hyprland_logo = true
     force_default_wallpaper = 0
+    disable_splash_rendering = true
 }
-# Auto-launch the TUI. When closed, it reloads Hyprland natively.
-exec-once = kitty -e bash -c "~/.config/Foolish-Alteration/foolish-alteration.sh; exec bash"
+# NO KEYBINDS DEFINED. The user cannot escape this setup screen.
+exec-once = kitty --maximized -e bash -c "foolish-alteration; exec bash"
 EOF
 
 arch-chroot /mnt chown -R "$USERNAME:$USERNAME" /home/"$USERNAME"
 
 echo "==> Deployment Complete. Dismantling hooks..."
 umount -R /mnt
-echo "SUCCESS! Pull your USB and reboot. Foolish Alteration will launch automatically."
+echo "SUCCESS! Pull your USB and reboot. The secure setup environment will launch."
