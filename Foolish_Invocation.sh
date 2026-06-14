@@ -1,189 +1,221 @@
 #!/bin/bash
-set -e # Exit immediately if a command exits with a non-zero status
+set -euo pipefail # Exit on error, unset variables, or pipeline failure
 
-# --- Colors (from Citation 1) ---
+# --- Configuration ---
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MNT_DIR="/mnt"
+USERNAME="${1:-archuser}"
+TARGET_DISK="${2:-/dev/nvme0n1}" # Default to NVMe, can change to /dev/sda
+FORMAT_EFI="true"
+AUTO_REBOOT=1
+
+# --- Colors ---
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+# --- Helper Functions ---
 print_header() {
-    echo -e "${GREEN}=========================================${NC}"
-    echo "$1"
-    echo -e "${GREEN}=========================================${NC}"
+  echo -e "${GREEN}=========================================${NC}"
+  echo "$1"
+  echo -e "${GREEN}=========================================${NC}"
 }
 
-# --- Helper Function to Run Commands Safely ---
-run_cmd() {
-    local output=("$@")
-    if command -v "$output[0]" &>/dev/null; then
-        "${output[@]}"
-    else
-        echo -e "${RED}[ERROR] Missing required tool: ${output[0]}${NC}" >&2
-        exit 1
-    fi
+log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
+log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
+log_error() {
+  echo -e "${RED}[ERROR]${NC} $1" >&2
+  exit 1
 }
 
-# --- Step 1: User Inputs ---
-print_header "FOOLISH INVOCATION"
-echo -e "${YELLOW}[INFO] Please be patient. This script will manage partitions.${NC}"
+# --- Step 1: Verify & Install Dependencies (Citation 1) ---
+print_header "FOOLISH INVOCATION - ARCH LINUX DEPLOYMENT"
+echo ""
+if ! command -v jq &>/dev/null; then
+  log_info "jq not found. Installing on live USB..."
+  pacman -Sy --noconfirm jq || log_error "Failed to install jq. Cannot read packages.json."
+fi
 
-read -p "Enter your Username (default: archuser): " USERNAME
-USERNAME="${USERNAME:-archuser}"
+# Check for packages.json in script directory
+if [ ! -f "$SCRIPT_DIR/packages.json" ]; then
+  log_error "FATAL: packages.json not found in $(pwd). Please create it first."
+fi
 
-# --- Step 2: Partition Listing and Selection ---
-print_header "Select Disks and Partitions"
-echo -e "${YELLOW}[WARN] This script will format disks selected. Proceed with caution.${NC}"
+# --- Step 2: List Disks and Partitions (Enhanced Partition Logic from Older System) ---
+print_header "Disk & Partition Discovery"
+echo -e "${YELLOW}[INFO] Scanning for bootable drives...${NC}"
 
-# Ask for the disk (e.g., /dev/sda)
-read -p "Enter Base Disk Path [e.g. /dev/sda]: " DISK_PATH
-DISK_PATH="${DISK_PATH:-/dev/nvme0n1}" # Default fallback if empty
+# List disks with partitions (exclude loopback)
+DISK_INFO=""
+while IFS= read -r line; do
+  if [[ "$line" == *"/dev/nvme"* ]] || [[ "$line" == *"/dev/sda"* ]]; then
+    DISK_INFO="$line"
+  fi
+done < <(lsblk -dno NAME,SIZE,MODEL -e 103 | grep -E "nvme|sda")
+
+if [ -z "$DISK_INFO" ]; then
+  log_warn "No NVMe or SATA drive found. Defaulting to $(findmnt -ro TARGET,FSTYPE -o target | head -1)"
+fi
+
+# Ask user for specific disk path if needed (from older system logic)
+read -p "Enter target disk path [default: $TARGET_DISK]: " DISK_PATH
+TARGET_DISK="${DISK_PATH:-/dev/nvme0n1}"
 
 echo ""
-echo -e "${GREEN}Listing Partitions on ${DISK_PATH}:${NC}"
-echo -e "------------------------------------------------------------"
-lsblk -o NAME,SIZE,FSTYPE,MOUNTPOINT -n --no-headings | while read line; do
-    echo "$(printf "%-10s %-8s %-6s %s" $(echo $line | cut -d' ' -f1) $(echo $line | cut -d' ' -f2) $(echo $line | cut -d' ' -f3) $(echo $line | cut -d' ' -f4))")
+echo -e "${GREEN}Available partitions on ${TARGET_DISK}:${NC}"
+printf "%-20s %-7s %-8s %-6s\n" "NAME" "SIZE" "TYPE" "MOUNT"
+lsblk -ro NAME,SIZE,FSTYPE,MOUNTPOINT -o NAME,SIZE,FSTYPE,MOUNTPOINT "$TARGET_DISK" 2>/dev/null || lsblk -n -o NAME,SIZE,FSTYPE "$TARGET_DISK"
+
+# --- Step 3: Partition Selection (Enhanced Index Logic from Older System) ---
+print_header "Partition Selection"
+echo -e "${YELLOW}[WARNING] This script will FORMAT selected partitions.${NC}"
+read -p "Select ROOT partition index (usually 2 or higher, e.g., nvme0n1p2): " ROOT_IDX
+read -p "Select EFI partition index (usually 1, e.g., nvme0n1p1): " EFI_IDX
+
+# --- Step 4: Build Partition Paths Safely ---
+PARTITION_DEVICES=()
+while IFS= read -r part_line; do
+  # Extract just the device path from lsblk output
+  PART_NAME=$(echo "$part_line" | awk '{print $1}')
+  if [[ ! "$PARTITION_DEVICES" =~ "$PART_NAME" ]]; then
+    PARTITION_DEVICES+=("$PART_NAME")
+  fi
+done < <(lsblk -n -o NAME -d 0 -D "$TARGET_DISK")
+
+# Ensure we have at least 2 partitions for safety
+if [ "${#PARTITION_DEVICES[@]}" -lt 2 ]; then
+  log_error "Not enough partitions detected. Ensure you have EFI and Root partitions."
+fi
+
+ROOT_PART="${PARTITION_DEVICES[$((ROOT_IDX - 1))]}"
+EFI_PART="${PARTITION_DEVICES[$((EFI_IDX - 1))]}"
+
+echo ""
+echo -e "${GREEN}Selected ROOT Partition: ${ROOT_PART}${NC}"
+echo -e "${YELLOW}Selected EFI Partition:  ${EFI_PART}${NC}"
+
+if [ "$ROOT_PART" == "$EFI_PART" ]; then
+  log_error "FATAL ERROR: Root and EFI partitions cannot be the same device."
+fi
+
+# --- Step 5: Format Partitions (Btrfs for Root, FAT32 for EFI) ---
+print_header "Step 1: Formatting Partitions"
+
+log_info "Unmounting any existing mounts..."
+for part in "$ROOT_PART" "$EFI_PART"; do
+  umount "/mnt/$part" 2>/dev/null || true
 done
 
-echo "------------------------------------------------------------"
-echo ""
-
-# We assume the first valid entry on the disk is EFI, second is Root usually. 
-# But we will allow user to pick by index (1 for sda1, 2 for sda2).
-
-print_header "Partition Selection Logic"
-echo -e "${YELLOW}[INFO] We will attempt to auto-detect based on size first.${NC}"
-echo -e "${YELLOW}Please verify this matches your desired layout:${NC}"
-
-# Assign indices from lsblk output list (excluding the disk header)
-# We read the previous lsblk loop result into an array for selection
-IFS=$'\n' 
-DISK_PARTS=($(lsblk -n -o NAME,SIZE,FSTYPE --exclude "/dev/sd[0-9]" 2>/dev/null || lsblk -n -o NAME,SIZE,FSTYPE))
-
-# Simplified approach: Prompt specifically for Root and EFI based on device order
-print_header "1. Select EFI Partition"
-echo -e "${YELLOW}Partition List (Format: Index | Device)${NC}"
-echo "------------------------------------------------------------"
-index=0
-for part in $(lsblk -n -o NAME --sort SIZE -r /dev/sda| tail -n +2); do 
-    echo "${GREEN}${index}. ${part}${NC}"
-    ((index++))
-done
-
-# Store the selection logic safely to avoid "command not found" errors
-read -p "Enter Index for EFI Partition (usually 1): " EFI_INDEX
-
-print_header "2. Select Root Partition"
-echo -e "${YELLOW}Partition List (Format: Index | Device)${NC}"
-echo "------------------------------------------------------------"
-# We must re-scan because the previous loop might have exited or variables cleared in subshells
-read -p "Enter Index for ROOT Partition (usually 2): " ROOT_INDEX
-
-# Map indices to actual paths from lsblk output
-PARTITION_PATHS=($(lsblk -n -o NAME --sort SIZE -r /dev/sda | tail -n +2))
-if [ ${#PARTITION_PATHS[@]} -ge 2 ]; then
-    EFI_PART="${PARTITION_PATHS[$((EFI_INDEX-1))]}"
-    ROOT_PART="${PARTITION_PATHS[$((ROOT_INDEX-1))]}"
-else
-    echo -e "${RED}[ERROR] Not enough partitions found on ${DISK_PATH}.${NC}" >&2
-    exit 1
-fi
-
-echo ""
-echo -e "${GREEN}Selected EFI: ${EFI_PART}${NC}"
-echo -e "${YELLOW}Selected Root: ${ROOT_PART}${NC}"
-
-# --- Step 3: Formatting (Citation 1 & 2 Logic) ---
-print_header "Step 1: Partitioning and Filesystem Setup"
-
-# Format EFI (FAT32)
-if mountpoint -q "/boot/efi"; then
-    umount "/boot/efi" 2>/dev/null || true
-fi
-
-echo -e "${YELLOW}Formatting EFI Partition (${EFI_PART}) to FAT32...${NC}"
-mkfs.fat -F 32 -n "BOOT" "$EFI_PART"
-if [ $? -eq 0 ]; then
-    echo -e "${GREEN}[OK] EFI partition formatted.${NC}"
-else
-    echo -e "${RED}[FAIL] Formatting EFI failed. Check if device is writable.${NC}" >&2
-fi
-
-# Format Root (Btrfs)
-echo -e "${YELLOW}Formatting Root Partition (${ROOT_PART}) to BTRFS...${NC}"
+# Format Root as Btrfs (Citation 1 & 3)
+log_info "Formatting ${ROOT_PART} to BTRFS..."
 mkfs.btrfs -f -L root "$ROOT_PART"
-if [ $? -eq 0 ]; then
-    echo -e "${GREEN}[OK] Root partition formatted as BTRFS.${NC}"
+
+# Format EFI as FAT32
+if [ "$FORMAT_EFI" == "true" ]; then
+  log_info "Formatting ${EFI_PART} to FAT32 (BOOT)..."
+  mkfs.fat -F 32 -n "BOOT" "$EFI_PART"
 else
-    echo -e "${RED}[FAIL] Formatting Root failed. Ensure btrfs-progs is installed.${NC}" >&2
+  log_warn "Skipping EFI formatting. Ensure UUIDs are valid if you're adding Windows later."
 fi
 
-# --- Step 4: Mount Hierarchy (Citation 3) ---
+# --- Step 6: Mount Hierarchy (Citation 1 & 2) ---
 print_header "Step 2: Mounting Hierarchy"
+
 mkdir -p /mnt/boot/efi
+mkdir -p /home/"$USERNAME"
+mkdir -p /var/log
 
 mount "$ROOT_PART" /mnt
 mount "$EFI_PART" /mnt/boot/efi
 
-# Btrfs Subvolume Creation (Crucial for Hyprland)
-echo -e "${YELLOW}Creating BTRFS Subvolumes...${NC}"
+# Create Btrfs Subvolumes (Crucial for Hyprland/Swap/Home)
+log_info "Creating BTRFS Subvolumes..."
 btrfs subvolume create /home
-if [ $? -ne 0 ]; then
-    echo -e "${RED}[FAIL] Failed to create /home subvolume.${NC}" >&2
-fi
+btrfs subvolume create /var/log
+echo -e "${GREEN}[OK] BTRFS Subvolumes created.${NC}"
 
-# --- Step 5: Package Installation (Citation 1) ---
-print_header "Step 3: Installing System & AUR Helper"
+# --- Step 7: Chroot and Install (Packages.json Logic from Older System) ---
+print_header "Step 3: Installing Base System"
 
 mount -t proc /proc /mnt/proc
 mount -t sysfs /sys /mnt/sys
 mount -t dev dev /mnt/dev
 
-echo -e "${GREEN}Entering Chroot...${NC}"
-chroot /mnt
+chroot /mnt /bin/bash <<'EOF'
+set -e
 
-# Inside chroot, install base and Hyprland packages
-# Note: This step requires 'yay' or 'pacman -S' access. Since 'ly' might be missing, use yay-bin.
-pacman -Sy --noconfirm
+# Sync pacman mirrors (Standard Arch Practice)
+pacman-key --init
+pacman-key --populate archlinux
+pacman -Sy --noconfirm || true
 
-# Try to install yay-bin as AUR helper (Fallback) or ly if present
-if command -v yay &>/dev/null; then
-    yay -S --noconfirm hyprland kitty wofi grim slurp waybar nitrogen networkmanager zsh git
+# Install core utilities and JSON dependencies
+pacman -S --noconfirm base-devel linux-firmware zsh networkmanager git jq
+
+# --- AUR Helper Setup: Use 'ly' or 'yay-bin' fallback (Citation 1) ---
+# Check if 'ly' is available, otherwise install yay-bin as backup
+if command -v ly &>/dev/null; then
+    echo "Using 'ly' as AUR helper"
+    # Install additional AUR helper packages for hyprland dependencies
+    ly -Sy --noconfirm 2>/dev/null || true
 else
-    pacman -S --noconfirm hyprland kitty wofi grim slurp waybar nitrogen networkmanager zsh git
+    echo "'ly' not found. Attempting yay-bin installation..."
+    pacman -S --noconfirm yay-bin 2>/dev/null || true
 fi
 
-# Check for packages.json (Citation 1)
-PACKAGES_FILE=""
-if [ -f "$HOME/packages.json" ]; then
-    PACKAGES_FILE="$HOME/packages.json"
-    echo -e "${GREEN}[INFO] Using provided ${PACKAGES_FILE}.${NC}"
+# --- Install Packages from JSON File (Older System Logic) ---
+PACKAGES_FILE="/root/packages.json"
+if [ -f "$PACKAGES_FILE" ]; then
+    echo "==> Installing modular packages from JSON..."
+    while IFS= read -r pkg; do
+        if [[ ! -z "$pkg" ]]; then
+            # Try AUR via 'ly' or 'yay', fallback to pacman for official repos
+            if command -v yay &>/dev/null || command -v ly &>/dev/null; then
+                yay -S --noconfirm "$pkg" 2>/dev/null || true
+            else
+                pacman -S --noconfirm "$pkg" 2>/dev/null || true
+            fi
+        fi
+    done < <(cat "$PACKAGES_FILE")
+else
+    log_warn "packages.json not found in /root/. Installing core Hyprland manually."
 fi
 
-# Cleanup Chroot before exiting
+# --- Additional Hyprland Essentials ---
+pacman -S --noconfirm hyprland-wayland-wlroots-libva-vulkan-utils vulkan-intel-filesystem 2>/dev/null || true
+
+# --- Set System Locale, Hostname, and Root User ---
+ln -sf /usr/share/zoneinfo/America/New_York /etc/localtime
+hwclock --systohc
+sed -i 's/#en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen
+locale-gen
+echo "LANG=en_US.UTF-8" > /etc/locale.conf
+echo "arch-hyprland" > /etc/hostname
+
+# --- Create User ---
+useradd -m -G wheel -s /bin/zsh "$USERNAME" 2>/dev/null || true
+passwd "$USERNAME" | passwd --stdin "$USERNAME" 2>/dev/null || true
+
+# --- Configure NetworkManager for Wi-Fi (Optional) ---
+systemctl enable NetworkManager
+
+echo "==> Deployment Complete. Dismantling chroot mounts..."
+exit 0
+EOF
+
+# --- Step 8: Cleanup and Reboot ---
+print_header "Finalizing"
 umount /mnt/dev
 umount /mnt/sys
 umount /mnt/proc
+umount /mnt/boot/efi
+umount /mnt
 
-echo -e "${GREEN}[INSTALLER]${NC} Setup Complete!"
-echo -e "${YELLOW}[WARNING]${NC} You must reboot now to use your new Hyprland Arch VM."
-
-# ============================================
-# --- Step 6: Auto Reboot (User Requirement) ---
-# ============================================
-
+log_info "Installation Complete!"
 echo -e "${GREEN}Pausing for ${NC}${BLUE}10 seconds...${NC}"
 sleep 10
 
-sync; poweroff
-
-3 Citations
-
-
-44.65 tok/sec
-2973 tokens
-3.35s
-Stop reason: EOS Token Found
-
+sync
+poweroff
