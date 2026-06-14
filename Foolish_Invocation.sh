@@ -25,7 +25,8 @@ print_header() {
 USERNAME="${1:-archuser}"
 TARGET_DISK="${2:-/dev/nvme0n1}"
 FORMAT_EFI="true"
-GITHUB_RAW_URL="https://raw.githubusercontent.com/MichaelWard405/Foolish-Invocation/main/packages.json"
+# UPDATED: Pointing to the 'master' branch
+GITHUB_RAW_URL="https://raw.githubusercontent.com/MichaelWard405/Foolish-Invocation/master/packages.json"
 
 # --- Step 1: Verify Dependencies & Fetch JSON ---
 print_header "Step 1: Environment & Config Retrieval"
@@ -37,7 +38,7 @@ if ! command -v jq &>/dev/null || ! command -v curl &>/dev/null; then
 fi
 
 # Dynamically fetch the packages.json directly from GitHub
-log_info "Fetching packages.json from GitHub..."
+log_info "Fetching packages.json from GitHub (master branch)..."
 curl -sL "$GITHUB_RAW_URL" -o "packages.json"
 
 # Validate that the file downloaded and is valid JSON
