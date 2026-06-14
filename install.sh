@@ -39,7 +39,7 @@ done
 read -p "Select ROOT partition (WARNING: WILL BE FORMATTED!): " ROOT_IDX
 ROOT_PART="${PART_PATHS[$((ROOT_IDX - 1))]}"
 
-read -p "Select EFI partition (500MB FAT32): " EFI_IDX
+read -p "Select EFI partition (512MB FAT32): " EFI_IDX
 EFI_PART="${PART_PATHS[$((EFI_IDX - 1))]}"
 
 if [ "$ROOT_PART" == "$EFI_PART" ]; then
@@ -80,7 +80,7 @@ arch-chroot /mnt /bin/bash <<EOF
     sed -i 's/#en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen
     locale-gen
     echo "LANG=en_US.UTF-8" > /etc/locale.conf
-    echo "arch-hyprland" > /etc/hostname
+    echo "FoolishArch" > /etc/hostname
     systemctl enable NetworkManager
 
     useradd -m -G wheel -s /bin/bash "$USERNAME"
@@ -96,8 +96,8 @@ arch-chroot /mnt /bin/bash <<EOF
     # 1. FIXED: Create directories FIRST, then clone.
     su - "$USERNAME" -c "mkdir -p ~/.config/hypr ~/.local/bin"
     su - "$USERNAME" -c "git clone https://github.com/MichaelWard405/Foolish-Alteration.git ~/.config/Foolish-Alteration"
-    su - "$USERNAME" -c "chmod +x ~/.config/Foolish-Alteration/foolish-alteration.sh"
-    su - "$USERNAME" -c "ln -s ~/.config/Foolish-Alteration/foolish-alteration.sh ~/.local/bin/foolish-alteration"
+    su - "$USERNAME" -c "chmod +x ~/.config/Foolish-Alteration/Foolish-Alteration.sh"
+    su - "$USERNAME" -c "ln -s ~/.config/Foolish-Alteration/Foolish-Alteration.sh ~/.local/bin/foolish-alteration"
 
     # 2. SECURE FIRST-BOOT PIPELINE: Auto-login to TTY1 ONLY for the first run
     mkdir -p /etc/systemd/system/getty@tty1.service.d
@@ -126,7 +126,7 @@ misc {
     disable_splash_rendering = true
 }
 # NO KEYBINDS DEFINED. The user cannot escape this setup screen.
-exec-once = kitty --maximized -e bash -c "foolish-alteration; exec bash"
+exec-once = kitty --maximized -e bash -c "Foolish-Alteration; exec bash"
 EOF
 
 arch-chroot /mnt chown -R "$USERNAME:$USERNAME" /home/"$USERNAME"
