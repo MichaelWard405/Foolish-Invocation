@@ -1,17 +1,14 @@
-{
-  "base_system": [
-    "base", "linux", "linux-firmware", "base-devel", "networkmanager", 
-    "grub", "efibootmgr", "sudo", "git", "flatpak", "jq", "curl"
-  ],
-  "desktop_environment": [
-    "hyprland", "kitty", "waybar", "wofi", "rofi", "nautilus", "gum", "ly"
-  ],
-  "theming_and_portals": [
-    "xdg-desktop-portal-hyprland", "xdg-desktop-portal-gtk", 
-    "qt5-wayland", "qt6-wayland", "qt5ct", "qt6ct", "kvantum", "kvantum-qt5", 
-    "adwaita-icon-theme", "papirus-icon-theme"
-  ],
-  "gtk_dbus_dependencies": [
-    "dconf", "gsettings-desktop-schemas", "polkit-gnome", "ttf-jetbrains-mono-nerd"
-  ]
-}
+[
+    "base", 
+    "linux-firmware", 
+    "hyprland", 
+    "kitty", 
+    "wofi", 
+    "grim", 
+    "slurp", 
+    "waybar", 
+    "nitrogen", 
+    "networkmanager", 
+    "zsh", 
+    "git"
+]
