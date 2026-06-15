@@ -119,6 +119,9 @@ echo "$USERNAME:$USER_PASSWORD" >/mnt/root/credentials.txt
 echo "root:$USER_PASSWORD" >>/mnt/root/credentials.txt
 chmod 600 /mnt/root/credentials.txt
 
+# Safely extract the Root Partition UUID from the live environment
+ROOT_UUID=$(blkid -s UUID -o value "$ROOT_PART")
+
 print_header "Step 6: Chroot Environment Configuration"
 
 arch-chroot /mnt /bin/bash <<EOF
@@ -138,17 +141,51 @@ arch-chroot /mnt /bin/bash <<EOF
     touch "/home/$USERNAME/.zshrc"
     chown "$USERNAME:$USERNAME" "/home/$USERNAME/.zshrc"
     
+    echo "==> Installing rEFInd and efibootmgr..."
     pacman -S --noconfirm refind efibootmgr
-    refind-install --yes
     
-    mkdir -p /boot/efi/EFI/refind/themes
-    git clone https://github.com/CriticalPulsar/refind-efifetch.git /boot/efi/EFI/refind/themes/refind-efifetch
-    echo "include themes/refind-efifetch/theme.conf" >> /boot/efi/EFI/refind/refind.conf
+    echo "==> Deploying rEFInd..."
+    refind-install --yes --alldrivers || echo "[WARN] refind-install issued warnings, continuing validation..."
     
-    ROOT_DEV=\$(findmnt -no SOURCE /)
-    ROOT_UUID=\$(blkid -s UUID -o value "\$ROOT_DEV")
-    echo "\"Boot with standard options\"  \"root=UUID=\${ROOT_UUID} rw flags=subvol=@\"" > /boot/refind_linux.conf
-    echo "\"Boot into console mode\"      \"root=UUID=\${ROOT_UUID} rw flags=subvol=@ systemd.unit=multi-user.target\"" >> /boot/refind_linux.conf
+    # Path Finder: Dynamically locate where refind.conf landed inside the chroot
+    REFIND_CONF=""
+    for path in "/boot/efi/EFI/refind/refind.conf" "/boot/EFI/refind/refind.conf" "/efi/EFI/refind/refind.conf"; do
+        if [ -f "\$path" ]; then
+            REFIND_CONF="\$path"
+            break
+        fi
+    done
+
+    if [ -z "\$REFIND_CONF" ]; then
+        echo "[WARN] Target configuration not found. Implementing fallback architecture structure..."
+        mkdir -p /boot/efi/EFI/refind
+        touch /boot/efi/EFI/refind/refind.conf
+        REFIND_CONF="/boot/efi/EFI/refind/refind.conf"
+    fi
+
+    REFIND_DIR=\$(dirname "\$REFIND_CONF")
+    
+    # Explicitly add the Btrfs filesystem driver so rEFInd can read your Linux kernels
+    mkdir -p "\$REFIND_DIR/drivers_x64"
+    if [ -f "/usr/share/refind/drivers_x64/btrfs_x64.efi" ]; then
+        cp /usr/share/refind/drivers_x64/btrfs_x64.efi "\$REFIND_DIR/drivers_x64/"
+        echo "==> Btrfs driver added to rEFInd directory."
+    fi
+
+    # Automate theme deployment
+    mkdir -p "\$REFIND_DIR/themes"
+    echo "==> Syncing refind-efifetch theme assets..."
+    rm -rf "\$REFIND_DIR/themes/refind-efifetch"
+    git clone https://github.com/CriticalPulsar/refind-efifetch.git "\$REFIND_DIR/themes/refind-efifetch"
+    
+    if ! grep -q "include themes/refind-efifetch/theme.conf" "\$REFIND_CONF"; then
+        echo "include themes/refind-efifetch/theme.conf" >> "\$REFIND_CONF"
+    fi
+    
+    # Generate accurate boot stanzas for a flat Btrfs root topology
+    echo "\"Boot with standard options\"  \"root=UUID=${ROOT_UUID} rw\"" > /boot/refind_linux.conf
+    echo "\"Boot into console mode\"      \"root=UUID=${ROOT_UUID} rw systemd.unit=multi-user.target\"" >> /boot/refind_linux.conf
+    echo "==> refind_linux.conf generated successfully."
     
     echo "==> Setting up AUR Helper (yay-bin)..."
     sudo -u "$USERNAME" bash -c "cd ~ && git clone https://aur.archlinux.org/yay-bin.git && cd yay-bin && makepkg -si --noconfirm"
@@ -217,4 +254,4 @@ rm -f packages.json
 umount -R /mnt
 
 log_info "Installation Complete!"
-echo -e "${GREEN}You can now reboot your system directly into rEFInd and Ly!${NC}"
+echo -e "${GREEN}You can now safely reboot your system directly into rEFInd and Ly!${NC}"
