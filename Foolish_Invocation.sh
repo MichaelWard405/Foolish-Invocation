@@ -21,41 +21,55 @@ print_header() {
   echo -e "${BLUE}================================================================${NC}"
 }
 
-# --- Configuration ---
-USERNAME="${1:-archuser}"
-TARGET_DISK="${2:-/dev/nvme0n1}"
+# --- Configuration Variables ---
+TARGET_DISK="${1:-/dev/nvme0n1}"
 FORMAT_EFI="true"
-# UPDATED: Pointing to the 'master' branch
 GITHUB_RAW_URL="https://raw.githubusercontent.com/MichaelWard405/Foolish-Invocation/master/packages.json"
 
 # --- Step 1: Verify Dependencies & Fetch JSON ---
 print_header "Step 1: Environment & Config Retrieval"
 
-# Ensure jq and curl are installed on the live environment
 if ! command -v jq &>/dev/null || ! command -v curl &>/dev/null; then
   log_warn "Required tools missing. Installing jq and curl on live USB..."
   pacman -Sy --noconfirm jq curl || log_error "Failed to install dependencies."
 fi
 
-# Dynamically fetch the packages.json directly from GitHub
 log_info "Fetching packages.json from GitHub (master branch)..."
 curl -sL "$GITHUB_RAW_URL" -o "packages.json"
 
-# Validate that the file downloaded and is valid JSON
 if [ ! -f "packages.json" ] || ! jq . "packages.json" >/dev/null 2>&1; then
-  log_error "FATAL: Failed to download or parse packages.json from GitHub. Check your internet connection or repository URL."
+  log_error "FATAL: Failed to download or parse packages.json from GitHub."
 fi
 log_info "Successfully loaded packages configuration."
 
-# --- Step 2: Disk & Partition Discovery ---
-print_header "Step 2: Disk & Partition Selection"
+# --- Step 2: System Configuration Details ---
+print_header "Step 2: System Credentials"
+
+read -p "Enter desired username [default: archuser]: " INPUT_USER
+USERNAME="${INPUT_USER:-archuser}"
+
+# Loop to ensure passwords match and aren't empty
+while true; do
+  read -s -p "Enter password for $USERNAME and root: " USER_PASSWORD
+  echo ""
+  read -s -p "Confirm password: " USER_PASSWORD_CONFIRM
+  echo ""
+  if [ "$USER_PASSWORD" == "$USER_PASSWORD_CONFIRM" ] && [ -n "$USER_PASSWORD" ]; then
+    log_info "Password confirmed."
+    break
+  else
+    echo -e "${RED}[ERROR] Passwords do not match or are empty. Try again.${NC}"
+  fi
+done
+
+# --- Step 3: Disk & Partition Discovery ---
+print_header "Step 3: Disk & Partition Selection"
 lsblk -dno NAME,SIZE,MODEL | grep -v "loop"
 echo "----------------------------------------------------------------"
 read -p "Enter target disk path (e.g., /dev/nvme0n1 or /dev/sda) [default: $TARGET_DISK]: " DISK_PATH
 TARGET_DISK="${DISK_PATH:-$TARGET_DISK}"
 echo "----------------------------------------------------------------"
 
-# Safely map partitions based on the exact path
 mapfile -t PART_PATHS < <(lsblk -rno NAME,TYPE "$TARGET_DISK" | awk '$2=="part" {print "/dev/"$1}')
 
 if [ ${#PART_PATHS[@]} -eq 0 ]; then
@@ -80,10 +94,9 @@ if [ "$ROOT_PART" == "$EFI_PART" ]; then
   log_error "FATAL ERROR: Root and EFI partitions cannot be the same device."
 fi
 
-# --- Step 3: Format & Mount Partitions ---
-print_header "Step 3: Formatting & Mounting"
+# --- Step 4: Format & Mount Partitions ---
+print_header "Step 4: Formatting & Mounting"
 
-# Unmount just in case they are busy
 umount -q "$ROOT_PART" 2>/dev/null || true
 umount -q "$EFI_PART" 2>/dev/null || true
 
@@ -100,38 +113,41 @@ mount "$ROOT_PART" /mnt
 mkdir -p /mnt/boot/efi
 mount -t vfat "$EFI_PART" /mnt/boot/efi
 
-# --- Step 4: Bootstrap Base System ---
-print_header "Step 4: Bootstrapping Base Arch System"
+# --- Step 5: Bootstrap Base System ---
+print_header "Step 5: Bootstrapping Base Arch System"
 
-# We install the absolute bare minimum here to ensure the chroot works.
-# The rest of your packages.json will be installed safely via 'yay' inside the chroot.
 log_info "Running pacstrap..."
 pacstrap -K /mnt base base-devel linux linux-firmware networkmanager git zsh jq curl
 
 log_info "Generating fstab..."
 genfstab -U /mnt >>/mnt/etc/fstab
 
-# Copy the fetched packages.json to the new system so the chroot can read it
+# Pass the files and credentials into the chroot
 cp packages.json /mnt/root/
+echo "$USERNAME:$USER_PASSWORD" >/mnt/root/credentials.txt
+echo "root:$USER_PASSWORD" >>/mnt/root/credentials.txt
+chmod 600 /mnt/root/credentials.txt
 
-# --- Step 5: System Configuration via arch-chroot ---
-print_header "Step 5: Chroot Environment Configuration"
+# --- Step 6: System Configuration via arch-chroot ---
+print_header "Step 6: Chroot Environment Configuration"
 
 arch-chroot /mnt /bin/bash <<EOF
     set -e
     
-    # --- Set System Locale, Hostname, and Root User ---
+    # --- Set System Locale and Hostname ---
     ln -sf /usr/share/zoneinfo/America/New_York /etc/localtime
     hwclock --systohc
     sed -i 's/#en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen
     locale-gen
     echo "LANG=en_US.UTF-8" > /etc/locale.conf
-    echo "arch-hyprland" > /etc/hostname
+    
+    # UPDATED HOSTNAME
+    echo "Foolish" > /etc/hostname
 
-    # --- Create User ---
+    # --- Create User & Apply Passwords ---
     useradd -m -G wheel -s /bin/zsh "$USERNAME"
-    echo "$USERNAME:password" | chpasswd  # REPLACE 'password' WITH YOUR DESIRED DEFAULT
-    echo "root:password" | chpasswd       # REPLACE 'password' WITH YOUR DESIRED DEFAULT
+    chpasswd < /root/credentials.txt
+    rm /root/credentials.txt
     echo "%wheel ALL=(ALL:ALL) NOPASSWD: ALL" >> /etc/sudoers
 
     # --- Bootloader (Grub) ---
@@ -147,11 +163,7 @@ arch-chroot /mnt /bin/bash <<EOF
     PACKAGES_FILE="/root/packages.json"
     if [ -f "\$PACKAGES_FILE" ]; then
         echo "==> Installing modular packages from GitHub JSON..."
-        
-        # Parse the flat JSON array into a single space-separated string
         ALL_PKGS=\$(jq -r '.[]' "\$PACKAGES_FILE" | tr '\n' ' ')
-        
-        # Use yay with --needed so we don't redownload things pacstrap already installed (like 'base')
         sudo -u "$USERNAME" yay -S --needed --noconfirm \$ALL_PKGS
     else
         echo "[WARN] packages.json not found in /root/. Skipping modular install."
@@ -163,8 +175,8 @@ arch-chroot /mnt /bin/bash <<EOF
     echo "==> Internal Configuration Complete."
 EOF
 
-# --- Step 6: Cleanup and Reboot ---
-print_header "Step 6: Finalizing & Unmounting"
+# --- Step 7: Cleanup and Reboot ---
+print_header "Step 7: Finalizing & Unmounting"
 umount -R /mnt
 
 log_info "Installation Complete!"
