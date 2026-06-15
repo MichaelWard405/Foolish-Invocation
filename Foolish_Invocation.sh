@@ -220,7 +220,6 @@ decoration {
 
 # Window Layout Managers
 dwindle {
-    pseudotile = true
     preserve_split = true
 }
 
