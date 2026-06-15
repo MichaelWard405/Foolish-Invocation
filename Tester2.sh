@@ -57,6 +57,7 @@ fi
 log_info "Successfully loaded packages configuration."
 
 print_header "Step 3: Disk & Partition Selection"
+
 lsblk -dno NAME,SIZE,MODEL | grep -v "loop"
 echo "----------------------------------------------------------------"
 read -p "Enter target disk path (e.g., /dev/nvme0n1 or /dev/sda) [default: $TARGET_DISK]: " DISK_PATH
@@ -102,8 +103,8 @@ fi
 
 log_info "Mounting File Systems..."
 mount "$ROOT_PART" /mnt
-mkdir -p /mnt/boot
-mount -t vfat "$EFI_PART" /mnt/boot
+mkdir -p /mnt/boot/efi
+mount -t vfat "$EFI_PART" /mnt/boot/efi
 
 print_header "Step 5: Bootstrapping Base Arch System"
 
@@ -122,26 +123,36 @@ print_header "Step 6: Chroot Environment Configuration"
 
 arch-chroot /mnt /bin/bash <<EOF
     set -e
-    
     ln -sf /usr/share/zoneinfo/America/New_York /etc/localtime
     hwclock --systohc
     sed -i 's/#en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen
     locale-gen
     echo "LANG=en_US.UTF-8" > /etc/locale.conf
-    
     echo "Foolish" > /etc/hostname
     
     useradd -m -G wheel -s /bin/zsh "$USERNAME"
     chpasswd < /root/credentials.txt
     rm /root/credentials.txt
     echo "%wheel ALL=(ALL:ALL) NOPASSWD: ALL" >> /etc/sudoers
-
+    
     touch "/home/$USERNAME/.zshrc"
     chown "$USERNAME:$USERNAME" "/home/$USERNAME/.zshrc"
-
+    
+    pacman -S --noconfirm refind efibootmgr
+    refind-install --yes
+    
+    mkdir -p /boot/efi/EFI/refind/themes
+    git clone https://github.com/CriticalPulsar/refind-efifetch.git /boot/efi/EFI/refind/themes/refind-efifetch
+    echo "include themes/refind-efifetch/theme.conf" >> /boot/efi/EFI/refind/refind.conf
+    
+    ROOT_DEV=\$(findmnt -no SOURCE /)
+    ROOT_UUID=\$(blkid -s UUID -o value "\$ROOT_DEV")
+    echo "\"Boot with standard options\"  \"root=UUID=\${ROOT_UUID} rw flags=subvol=@\"" > /boot/refind_linux.conf
+    echo "\"Boot into console mode\"      \"root=UUID=\${ROOT_UUID} rw flags=subvol=@ systemd.unit=multi-user.target\"" >> /boot/refind_linux.conf
+    
     echo "==> Setting up AUR Helper (yay-bin)..."
     sudo -u "$USERNAME" bash -c "cd ~ && git clone https://aur.archlinux.org/yay-bin.git && cd yay-bin && makepkg -si --noconfirm"
-
+    
     PACKAGES_FILE="/root/packages.json"
     if [ -f "\$PACKAGES_FILE" ]; then
         echo "==> Installing packages from external GitHub JSON..."
@@ -150,26 +161,22 @@ arch-chroot /mnt /bin/bash <<EOF
     else
         echo "[WARN] packages.json missing from chroot environment root."
     fi
-
+    
     echo "==> Confirming login manager availability..."
     sudo -u "$USERNAME" yay -S --needed --noconfirm ly
-
+    
     mkdir -p "/home/$USERNAME/.config/hypr"
     cat << 'EOF2' > "/home/$USERNAME/.config/hypr/hyprland.conf"
 monitor=,preferred,auto,auto
-
 \$mainMod = SUPER
-
 bind = \$mainMod, Q, exec, kitty
 bind = \$mainMod, C, killactive,
 bind = \$mainMod, M, exit,
 bind = \$mainMod, R, exec, wofi --show drun
-
 input {
     kb_layout = us
     follow_mouse = 1
 }
-
 general {
     gaps_in = 5
     gaps_out = 10
@@ -178,7 +185,6 @@ general {
     col.inactive_border = rgba(595959aa)
     layout = dwindle
 }
-
 decoration {
     rounding = 10
     blur {
@@ -187,44 +193,26 @@ decoration {
         passes = 1
     }
 }
-
 dwindle {
     preserve_split = true
 }
-
 misc {
     force_default_wallpaper = 0
     disable_hyprland_logo = true
     disable_splash_rendering = true
 }
 EOF2
-
     chown -R "$USERNAME:$USERNAME" "/home/$USERNAME/.config"
-
-    echo "==> Installing and registering rEFInd Boot Manager..."
-    pacman -S --noconfirm refind efibootmgr
     
-    refind-install --yes
-
-    mkdir -p /boot/EFI/refind/themes
-    git clone https://github.com/CriticalPulsar/refind-efifetch.git /boot/EFI/refind/themes/refind-efifetch
-    echo "include themes/refind-efifetch/theme.conf" >> /boot/EFI/refind/refind.conf
-
-    ROOT_DEV=\$(findmnt -no SOURCE /)
-    ROOT_UUID=\$(blkid -s UUID -o value "\$ROOT_DEV")
-
-    echo "\"Boot with standard options\"  \"root=UUID=\${ROOT_UUID} rw flags=subvol=@\"" > /boot/refind_linux.conf
-    echo "\"Boot into console mode\"      \"root=UUID=\${ROOT_UUID} rw flags=subvol=@ systemd.unit=multi-user.target\"" >> /boot/refind_linux.conf
-
     systemctl enable NetworkManager
-    
     systemctl enable ly@tty2.service
     systemctl disable getty@tty2.service
-
+    
     echo "==> Custom Arch Chroot Configuration Complete."
 EOF
 
 print_header "Step 7: Finalizing & Unmounting"
+
 rm -f packages.json
 umount -R /mnt
 
