@@ -26,24 +26,8 @@ TARGET_DISK="${1:-/dev/nvme0n1}"
 FORMAT_EFI="true"
 GITHUB_RAW_URL="https://raw.githubusercontent.com/MichaelWard405/Foolish-Invocation/master/packages.json"
 
-# --- Step 1: Verify Dependencies & Fetch JSON ---
-print_header "Step 1: Environment & Config Retrieval"
-
-if ! command -v jq &>/dev/null || ! command -v curl &>/dev/null; then
-  log_warn "Required tools missing. Installing jq and curl on live USB..."
-  pacman -Sy --noconfirm jq curl || log_error "Failed to install dependencies."
-fi
-
-log_info "Fetching packages.json from GitHub (master branch)..."
-curl -sL "$GITHUB_RAW_URL" -o "packages.json"
-
-if [ ! -f "packages.json" ] || ! jq . "packages.json" >/dev/null 2>&1; then
-  log_error "FATAL: Failed to download or parse packages.json from GitHub."
-fi
-log_info "Successfully loaded packages configuration."
-
-# --- Step 2: System Configuration Details ---
-print_header "Step 2: System Credentials"
+# --- Step 1: System Configuration Details ---
+print_header "Step 1: System Credentials"
 
 read -p "Enter desired username [default: archuser]: " INPUT_USER
 USERNAME="${INPUT_USER:-archuser}"
@@ -61,6 +45,22 @@ while true; do
     echo -e "${RED}[ERROR] Passwords do not match or are empty. Try again.${NC}"
   fi
 done
+
+# --- Step 2: Verify Dependencies & Fetch JSON ---
+print_header "Step 2: Environment & Config Retrieval"
+
+if ! command -v jq &>/dev/null || ! command -v curl &>/dev/null; then
+  log_warn "Required tools missing. Installing jq and curl on live USB..."
+  pacman -Sy --noconfirm jq curl || log_error "Failed to install dependencies."
+fi
+
+log_info "Fetching packages.json from GitHub (master branch)..."
+curl -sL "$GITHUB_RAW_URL" -o "packages.json"
+
+if [ ! -f "packages.json" ] || ! jq . "packages.json" >/dev/null 2>&1; then
+  log_error "FATAL: Failed to download or parse packages.json from GitHub."
+fi
+log_info "Successfully loaded packages configuration."
 
 # --- Step 3: Disk & Partition Discovery ---
 print_header "Step 3: Disk & Partition Selection"
@@ -122,7 +122,7 @@ pacstrap -K /mnt base base-devel linux linux-firmware networkmanager git zsh jq 
 log_info "Generating fstab..."
 genfstab -U /mnt >>/mnt/etc/fstab
 
-# Pass the files and credentials into the chroot
+# Pass the external packages file and credentials safely into chroot
 cp packages.json /mnt/root/
 echo "$USERNAME:$USER_PASSWORD" >/mnt/root/credentials.txt
 echo "root:$USER_PASSWORD" >>/mnt/root/credentials.txt
@@ -141,16 +141,20 @@ arch-chroot /mnt /bin/bash <<EOF
     locale-gen
     echo "LANG=en_US.UTF-8" > /etc/locale.conf
     
-    # UPDATED HOSTNAME
+    # Custom Hostname
     echo "Foolish" > /etc/hostname
-
+    
     # --- Create User & Apply Passwords ---
     useradd -m -G wheel -s /bin/zsh "$USERNAME"
     chpasswd < /root/credentials.txt
     rm /root/credentials.txt
     echo "%wheel ALL=(ALL:ALL) NOPASSWD: ALL" >> /etc/sudoers
 
-    # --- Bootloader (Grub) ---
+    # --- Pre-configure Zsh (Bypasses the wizard prompt) ---
+    touch "/home/$USERNAME/.zshrc"
+    chown "$USERNAME:$USERNAME" "/home/$USERNAME/.zshrc"
+
+    # --- Bootloader (Grub) Setup ---
     pacman -S --noconfirm grub efibootmgr
     grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB
     grub-mkconfig -o /boot/grub/grub.cfg
@@ -159,25 +163,92 @@ arch-chroot /mnt /bin/bash <<EOF
     echo "==> Setting up AUR Helper (yay-bin)..."
     sudo -u "$USERNAME" bash -c "cd ~ && git clone https://aur.archlinux.org/yay-bin.git && cd yay-bin && makepkg -si --noconfirm"
 
-    # --- Install Packages from JSON File ---
+    # --- Install Packages from external JSON File ---
     PACKAGES_FILE="/root/packages.json"
     if [ -f "\$PACKAGES_FILE" ]; then
-        echo "==> Installing modular packages from GitHub JSON..."
+        echo "==> Installing packages from external GitHub JSON..."
         ALL_PKGS=\$(jq -r '.[]' "\$PACKAGES_FILE" | tr '\n' ' ')
         sudo -u "$USERNAME" yay -S --needed --noconfirm \$ALL_PKGS
     else
-        echo "[WARN] packages.json not found in /root/. Skipping modular install."
+        echo "[WARN] packages.json missing from chroot environment root."
     fi
 
-    # --- Services ---
-    systemctl enable NetworkManager
+    # --- Explicitly ensure 'ly' display manager is present ---
+    echo "==> Confirming login manager availability..."
+    sudo -u "$USERNAME" yay -S --needed --noconfirm ly
 
-    echo "==> Internal Configuration Complete."
+    # --- Pre-configure Hyprland (Removes Warning Banner & Forces Wallpaper Blank) ---
+    mkdir -p "/home/$USERNAME/.config/hypr"
+    cat << 'EOF2' > "/home/$USERNAME/.config/hypr/hyprland.conf"
+# Monitor Settings
+monitor=,preferred,auto,auto
+
+# Keybindings Variable
+\$mainMod = SUPER
+
+# Core Keybind Shortcuts
+bind = \$mainMod, Q, exec, kitty
+bind = \$mainMod, C, killactive,
+bind = \$mainMod, M, exit,
+bind = \$mainMod, R, exec, wofi --show drun
+
+# Input configuration
+input {
+    kb_layout = us
+    follow_mouse = 1
+}
+
+# Window borders & Gaps
+general {
+    gaps_in = 5
+    gaps_out = 10
+    border_size = 2
+    col.active_border = rgba(33ccffee) rgba(00ff99ee) 45deg
+    col.inactive_border = rgba(595959aa)
+    layout = dwindle
+}
+
+# Window Styles
+decoration {
+    rounding = 10
+    blur {
+        enabled = true
+        size = 3
+        passes = 1
+    }
+}
+
+# Window Layout Managers
+dwindle {
+    pseudotile = true
+    preserve_split = true
+}
+
+# Completely turn off anime splash renders, logos, and default tiling backgrounds
+misc {
+    force_default_wallpaper = 0
+    disable_hyprland_logo = true
+    disable_splash_rendering = true
+}
+EOF2
+
+    # Give your user complete ownership of their new configurations
+    chown -R "$USERNAME:$USERNAME" "/home/$USERNAME/.config"
+
+    # --- Services Activation (Updated for Templated Units) ---
+    systemctl enable NetworkManager
+    
+    # Enable Ly on Virtual Terminal 2 and remove standard console login over it
+    systemctl enable ly@tty2.service
+    systemctl disable getty@tty2.service
+
+    echo "==> Custom Arch Chroot Configuration Complete."
 EOF
 
 # --- Step 7: Cleanup and Reboot ---
 print_header "Step 7: Finalizing & Unmounting"
+rm -f packages.json
 umount -R /mnt
 
 log_info "Installation Complete!"
-echo -e "${GREEN}You may now reboot into your new system.${NC}"
+echo -e "${GREEN}You can now reboot your system directly into Ly controlling TTY2!${NC}"
