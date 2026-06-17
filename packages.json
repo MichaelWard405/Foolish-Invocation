@@ -16,6 +16,11 @@
     "thundar-archive-plugin",
     "thundar-volman",
     "gvfs",
-    "tumbler"
+    "tumbler",
+    "waybar",
+    "wlogout",
+    "qt5ct",
+    "qt5-styleplugins",
+    "glib2"
 ]
 
