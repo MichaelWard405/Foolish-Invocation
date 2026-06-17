@@ -12,6 +12,10 @@
     "zsh", 
     "git",
     "ly",
-    "Dolphin"
+    "Thundar",
+    "thundar-archive-plugin",
+    "thundar-volman",
+    "gvfs",
+    "tumbler"
 ]
 
