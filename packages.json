@@ -12,14 +12,12 @@
     "zsh", 
     "git",
     "ly",
-    "Thundar",
-    "thundar-archive-plugin",
-    "thundar-volman",
+    "thunar",
+    "thunar-archive-plugin",
+    "thunar-volman",
     "gvfs",
     "tumbler",
-    "waybar",
     "wlogout",
-    "qt5ct"
-
+    "qt5ct",
+    "python"
 ]
-
