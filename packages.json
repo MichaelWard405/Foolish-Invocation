@@ -19,8 +19,7 @@
     "tumbler",
     "waybar",
     "wlogout",
-    "qt5ct",
-    "qt5-styleplugins",
-    "glib2"
+    "qt5ct"
+
 ]
 
