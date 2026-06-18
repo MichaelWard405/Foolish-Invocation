@@ -106,9 +106,8 @@ arch-chroot /mnt /bin/bash <<EOF
     echo "%wheel ALL=(ALL:ALL) NOPASSWD: ALL" >> /etc/sudoers
     touch "/home/$USERNAME/.zshrc"
     chown "$USERNAME:$USERNAME" "/home/$USERNAME/.zshrc"
-    pacman -S --noconfirm grub efibootmgr
-    grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB
-    grub-mkconfig -o /boot/grub/grub.cfg
+    pacman -S --noconfirm refind
+    refind-install
     echo "==> Setting up AUR Helper (yay-bin)..."
     sudo -u "$USERNAME" bash -c "cd ~ && git clone https://aur.archlinux.org/yay-bin.git && cd yay-bin && makepkg -si --noconfirm"
     PACKAGES_FILE="/root/packages.json"
@@ -122,7 +121,16 @@ arch-chroot /mnt /bin/bash <<EOF
     echo "==> Confirming login manager availability..."
     sudo -u "$USERNAME" yay -S --needed --noconfirm ly
     mkdir -p "/home/$USERNAME/.config/hypr"
-    cat << 'EOF2' > "/home/$USERNAME/.config/hypr/hyprland.conf"
+    cat << 'EOF2' > "/home/$USERNAME/.config/hypr/first_boot.sh"
+#!/bin/bash
+if [ ! -f ~/.cache/foolish_ran ]; then
+    mkdir -p ~/.cache
+    sleep 2
+    kitty --hold -e bash -c "mkdir -p ~/Foolish-Alteration && (curl -sfL https://raw.githubusercontent.com/MichaelWard405/Foolish-Alteration/master/Foolish_Alteration.py -o ~/Foolish-Alteration/Foolish_Alteration.py || curl -sfL https://raw.githubusercontent.com/MichaelWard405/Foolish-Alteration/main/Foolish_Alteration.py -o ~/Foolish-Alteration/Foolish_Alteration.py); chmod +x ~/Foolish-Alteration/Foolish_Alteration.py && python3 ~/Foolish-Alteration/Foolish_Alteration.py && touch ~/.cache/foolish_ran"
+fi
+EOF2
+    chmod +x "/home/$USERNAME/.config/hypr/first_boot.sh"
+    cat << 'EOF3' > "/home/$USERNAME/.config/hypr/hyprland.conf"
 monitor=,preferred,auto,auto
 \$mainMod = SUPER
 bind = \$mainMod, Q, exec, kitty
@@ -157,8 +165,8 @@ misc {
     disable_hyprland_logo = true
     disable_splash_rendering = true
 }
-exec-once = [ ! -f ~/.cache/foolish_ran ] && mkdir -p ~/.cache && kitty --hold -e bash -c "mkdir -p ~/Foolish-Alteration && (curl -sfL https://raw.githubusercontent.com/MichaelWard405/Foolish-Alteration/master/Foolish_Alteration.py -o ~/Foolish-Alteration/Foolish_Alteration.py || curl -sfL https://raw.githubusercontent.com/MichaelWard405/Foolish-Alteration/main/Foolish_Alteration.py -o ~/Foolish-Alteration/Foolish_Alteration.py); chmod +x ~/Foolish-Alteration/Foolish_Alteration.py && python3 ~/Foolish-Alteration/Foolish_Alteration.py; touch ~/.cache/foolish_ran"
-EOF2
+exec-once = ~/.config/hypr/first_boot.sh
+EOF3
     chown -R "$USERNAME:$USERNAME" "/home/$USERNAME/.config"
     systemctl enable NetworkManager
     systemctl enable ly@tty2.service
