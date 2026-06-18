@@ -141,7 +141,9 @@ echo "%wheel ALL=(ALL:ALL) NOPASSWD: ALL" >> /etc/sudoers
 touch "/home/$USERNAME/.zshrc"
 chown "$USERNAME:$USERNAME" "/home/$USERNAME/.zshrc"
 
-pacman -S --noconfirm refind efibootmgr python
+pacman -S --noconfirm refind efibootmgr python flatpak
+
+flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
 
 refind-install --yes --alldrivers || true
 
@@ -227,19 +229,18 @@ EOF2
 chown -R "$USERNAME:$USERNAME" "/home/$USERNAME/.config"
 
 mkdir -p /opt/Foolish-Alteration
-cd /opt/Foolish-Alteration
-curl -sL https://api.github.com/repos/MichaelWard405/Foolish-Alteration/contents | jq -r '.[] | select(.name | endswith(".py")) | .download_url' | xargs -n 1 curl -sLO
+curl -fL "https://raw.githubusercontent.com/MichaelWard405/Foolish-Alteration/main/Foolish_Alteration.py" -o /opt/Foolish-Alteration/Foolish_Alteration.py || curl -fL "https://raw.githubusercontent.com/MichaelWard405/Foolish-Alteration/master/Foolish_Alteration.py" -o /opt/Foolish-Alteration/Foolish_Alteration.py
 chown -R "$USERNAME:$USERNAME" /opt/Foolish-Alteration
-cd /
 
 cat << 'EOF3' > /etc/systemd/system/foolish-alteration.service
 [Unit]
-Description=Foolish Alteration First Boot
+Description=Foolish Alteration First Boot Setup
+Wants=network-online.target
 After=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/bash -c 'cd /opt/Foolish-Alteration && /usr/bin/python3 *.py'
+ExecStart=/usr/bin/python3 /opt/Foolish-Alteration/Foolish_Alteration.py
 ExecStartPost=/usr/bin/systemctl disable foolish-alteration.service
 
 [Install]
@@ -250,7 +251,6 @@ systemctl enable foolish-alteration.service
 systemctl enable NetworkManager
 systemctl enable ly@tty2.service
 systemctl disable getty@tty2.service
-
 EOF
 
 print_header "Step 7: Finalizing & Unmounting"
