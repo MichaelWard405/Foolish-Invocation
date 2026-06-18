@@ -48,7 +48,7 @@ if ! command -v jq &>/dev/null || ! command -v curl &>/dev/null; then
   pacman -Sy --noconfirm jq curl || log_error "Failed to install dependencies."
 fi
 
-log_info "Fetching packages.json from GitHub (master branch)..."
+log_info "Fetching packages.json from GitHub..."
 curl -sL "$GITHUB_RAW_URL" -o "packages.json"
 
 if [ ! -f "packages.json" ] || ! jq . "packages.json" >/dev/null 2>&1; then
@@ -124,81 +124,71 @@ ROOT_UUID=$(blkid -s UUID -o value "$ROOT_PART")
 print_header "Step 6: Chroot Environment Configuration"
 
 arch-chroot /mnt /bin/bash <<EOF
-    set -e
-    ln -sf /usr/share/zoneinfo/America/New_York /etc/localtime
-    hwclock --systohc
-    sed -i 's/#en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen
-    locale-gen
-    echo "LANG=en_US.UTF-8" > /etc/locale.conf
-    echo "Foolish" > /etc/hostname
-    
-    useradd -m -G wheel -s /bin/zsh "$USERNAME"
-    chpasswd < /root/credentials.txt
-    rm /root/credentials.txt
-    echo "%wheel ALL=(ALL:ALL) NOPASSWD: ALL" >> /etc/sudoers
-    
-    touch "/home/$USERNAME/.zshrc"
-    chown "$USERNAME:$USERNAME" "/home/$USERNAME/.zshrc"
-    
-    echo "==> Installing rEFInd and efibootmgr..."
-    pacman -S --noconfirm refind efibootmgr
-    
-    echo "==> Deploying rEFInd..."
-    refind-install --yes --alldrivers || echo "[WARN] refind-install issued warnings, continuing validation..."
-    
-    REFIND_CONF=""
-    for path in "/boot/efi/EFI/refind/refind.conf" "/boot/EFI/refind/refind.conf" "/efi/EFI/refind/refind.conf"; do
-        if [ -f "\$path" ]; then
-            REFIND_CONF="\$path"
-            break
-        fi
-    done
+set -e
 
-    if [ -z "\$REFIND_CONF" ]; then
-        echo "[WARN] Target configuration not found. Implementing fallback architecture structure..."
-        mkdir -p /boot/efi/EFI/refind
-        touch /boot/efi/EFI/refind/refind.conf
-        REFIND_CONF="/boot/efi/EFI/refind/refind.conf"
-    fi
+ln -sf /usr/share/zoneinfo/America/New_York /etc/localtime
+hwclock --systohc
+sed -i 's/#en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen
+locale-gen
+echo "LANG=en_US.UTF-8" > /etc/locale.conf
+echo "Foolish" > /etc/hostname
 
-    REFIND_DIR=\$(dirname "\$REFIND_CONF")
-    
-    mkdir -p "\$REFIND_DIR/drivers_x64"
-    if [ -f "/usr/share/refind/drivers_x64/btrfs_x64.efi" ]; then
-        cp /usr/share/refind/drivers_x64/btrfs_x64.efi "\$REFIND_DIR/drivers_x64/"
-        echo "==> Btrfs driver added to rEFInd directory."
-    fi
+useradd -m -G wheel -s /bin/zsh "$USERNAME"
+chpasswd < /root/credentials.txt
+rm /root/credentials.txt
+echo "%wheel ALL=(ALL:ALL) NOPASSWD: ALL" >> /etc/sudoers
 
-    mkdir -p "\$REFIND_DIR/themes"
-    echo "==> Syncing refind-efifetch theme assets..."
-    rm -rf "\$REFIND_DIR/themes/refind-efifetch"
-    git clone https://github.com/CriticalPulsar/refind-efifetch.git "\$REFIND_DIR/themes/refind-efifetch"
-    
-    if ! grep -q "include themes/refind-efifetch/theme.conf" "\$REFIND_CONF"; then
-        echo "include themes/refind-efifetch/theme.conf" >> "\$REFIND_CONF"
+touch "/home/$USERNAME/.zshrc"
+chown "$USERNAME:$USERNAME" "/home/$USERNAME/.zshrc"
+
+pacman -S --noconfirm refind efibootmgr python
+
+refind-install --yes --alldrivers || true
+
+REFIND_CONF=""
+for path in "/boot/efi/EFI/refind/refind.conf" "/boot/EFI/refind/refind.conf" "/efi/EFI/refind/refind.conf"; do
+    if [ -f "\$path" ]; then
+        REFIND_CONF="\$path"
+        break
     fi
-    
-    echo "\"Boot with standard options\"  \"root=UUID=${ROOT_UUID} rw\"" > /boot/refind_linux.conf
-    echo "\"Boot into console mode\"      \"root=UUID=${ROOT_UUID} rw systemd.unit=multi-user.target\"" >> /boot/refind_linux.conf
-    echo "==> refind_linux.conf generated successfully."
-    
-    echo "==> Setting up AUR Helper (yay-bin)..."
-    sudo -u "$USERNAME" bash -c "cd ~ && git clone https://aur.archlinux.org/yay-bin.git && cd yay-bin && makepkg -si --noconfirm"
-    
-    PACKAGES_FILE="/root/packages.json"
-    if [ -f "\$PACKAGES_FILE" ]; then
-        echo "==> Installing packages from external GitHub JSON..."
-        ALL_PKGS=\$(jq -r '.[]' "\$PACKAGES_FILE" | tr '\n' ' ')
-        sudo -u "$USERNAME" yay -S --needed --noconfirm \$ALL_PKGS
-    else
-        echo "[WARN] packages.json missing from chroot environment root."
-    fi
-    
-    echo "==> Confirming login manager availability..."
-    sudo -u "$USERNAME" yay -S --needed --noconfirm ly
-    
-    mkdir -p "/home/$USERNAME/.config/hypr"
-    cat << 'EOF2' > "/home/$USERNAME/.config/hypr/hyprland.conf"
+done
+
+if [ -z "\$REFIND_CONF" ]; then
+    mkdir -p /boot/efi/EFI/refind
+    touch /boot/efi/EFI/refind/refind.conf
+    REFIND_CONF="/boot/efi/EFI/refind/refind.conf"
+fi
+
+REFIND_DIR=\$(dirname "\$REFIND_CONF")
+
+mkdir -p "\$REFIND_DIR/drivers_x64"
+if [ -f "/usr/share/refind/drivers_x64/btrfs_x64.efi" ]; then
+    cp /usr/share/refind/drivers_x64/btrfs_x64.efi "\$REFIND_DIR/drivers_x64/"
+fi
+
+mkdir -p "\$REFIND_DIR/themes"
+rm -rf "\$REFIND_DIR/themes/refind-efifetch"
+git clone https://github.com/CriticalPulsar/refind-efifetch.git "\$REFIND_DIR/themes/refind-efifetch"
+
+if ! grep -q "include themes/refind-efifetch/theme.conf" "\$REFIND_CONF"; then
+    echo "include themes/refind-efifetch/theme.conf" >> "\$REFIND_CONF"
+fi
+
+echo "\"Boot with standard options\"  \"root=UUID=${ROOT_UUID} rw\"" > /boot/refind_linux.conf
+echo "\"Boot into console mode\"      \"root=UUID=${ROOT_UUID} rw systemd.unit=multi-user.target\"" >> /boot/refind_linux.conf
+
+sudo -u "$USERNAME" bash -c "cd ~ && git clone https://aur.archlinux.org/yay-bin.git && cd yay-bin && makepkg -si --noconfirm"
+
+PACKAGES_FILE="/root/packages.json"
+if [ -f "\$PACKAGES_FILE" ]; then
+    ALL_PKGS=\$(jq -r '.[]' "\$PACKAGES_FILE" | tr '\n' ' ')
+    sudo -u "$USERNAME" yay -S --needed --noconfirm \$ALL_PKGS
+fi
+
+sudo -u "$USERNAME" yay -S --needed --noconfirm ly
+
+mkdir -p "/home/$USERNAME/.config/hypr"
+cat << 'EOF2' > "/home/$USERNAME/.config/hypr/hyprland.conf"
 monitor=,preferred,auto,auto
 \$mainMod = SUPER
 bind = \$mainMod, Q, exec, kitty
@@ -234,13 +224,33 @@ misc {
     disable_splash_rendering = true
 }
 EOF2
-    chown -R "$USERNAME:$USERNAME" "/home/$USERNAME/.config"
-    
-    systemctl enable NetworkManager
-    systemctl enable ly@tty2.service
-    systemctl disable getty@tty2.service
-    
-    echo "==> Custom Arch Chroot Configuration Complete."
+chown -R "$USERNAME:$USERNAME" "/home/$USERNAME/.config"
+
+mkdir -p /opt/Foolish-Alteration
+cd /opt/Foolish-Alteration
+curl -sL https://api.github.com/repos/MichaelWard405/Foolish-Alteration/contents | jq -r '.[] | select(.name | endswith(".py")) | .download_url' | xargs -n 1 curl -sLO
+chown -R "$USERNAME:$USERNAME" /opt/Foolish-Alteration
+cd /
+
+cat << 'EOF3' > /etc/systemd/system/foolish-alteration.service
+[Unit]
+Description=Foolish Alteration First Boot
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bash -c 'cd /opt/Foolish-Alteration && /usr/bin/python3 *.py'
+ExecStartPost=/usr/bin/systemctl disable foolish-alteration.service
+
+[Install]
+WantedBy=multi-user.target
+EOF3
+
+systemctl enable foolish-alteration.service
+systemctl enable NetworkManager
+systemctl enable ly@tty2.service
+systemctl disable getty@tty2.service
+
 EOF
 
 print_header "Step 7: Finalizing & Unmounting"
@@ -249,4 +259,4 @@ rm -f packages.json
 umount -R /mnt
 
 log_info "Installation Complete!"
-echo -e "${GREEN}You can now safely reboot your system directly into rEFInd and Ly!${NC}"
+echo -e "${GREEN}System ready for reboot.${NC}"
