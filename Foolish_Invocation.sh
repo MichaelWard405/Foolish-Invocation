@@ -44,7 +44,7 @@ done
 print_header "Step 2: Environment & Config Retrieval"
 
 if ! command -v jq &>/dev/null || ! command -v curl &>/dev/null; then
-  log_warn "Required tools missing. Installing jq and curl on live USB..."
+  log_warn "Required tools missing. Installing jq and curl..."
   pacman -Sy --noconfirm jq curl || log_error "Failed to install dependencies."
 fi
 
@@ -109,7 +109,7 @@ mount -t vfat "$EFI_PART" /mnt/boot/efi
 print_header "Step 5: Bootstrapping Base Arch System"
 
 log_info "Running pacstrap..."
-pacstrap -K /mnt base base-devel linux linux-firmware networkmanager git zsh jq curl
+pacstrap -K /mnt base base-devel linux linux-firmware networkmanager git zsh jq curl flatpak python
 
 log_info "Generating fstab..."
 genfstab -U /mnt >>/mnt/etc/fstab
@@ -141,49 +141,18 @@ echo "%wheel ALL=(ALL:ALL) NOPASSWD: ALL" >> /etc/sudoers
 touch "/home/$USERNAME/.zshrc"
 chown "$USERNAME:$USERNAME" "/home/$USERNAME/.zshrc"
 
-pacman -S --noconfirm refind efibootmgr python flatpak
-
+dbus-uuidgen --ensure=/etc/machine-id
 flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
 
-refind-install --yes --alldrivers || true
-
-REFIND_CONF=""
-for path in "/boot/efi/EFI/refind/refind.conf" "/boot/EFI/refind/refind.conf" "/efi/EFI/refind/refind.conf"; do
-    if [ -f "\$path" ]; then
-        REFIND_CONF="\$path"
-        break
-    fi
-done
-
-if [ -z "\$REFIND_CONF" ]; then
-    mkdir -p /boot/efi/EFI/refind
-    touch /boot/efi/EFI/refind/refind.conf
-    REFIND_CONF="/boot/efi/EFI/refind/refind.conf"
-fi
-
-REFIND_DIR=\$(dirname "\$REFIND_CONF")
-
-mkdir -p "\$REFIND_DIR/drivers_x64"
-if [ -f "/usr/share/refind/drivers_x64/btrfs_x64.efi" ]; then
-    cp /usr/share/refind/drivers_x64/btrfs_x64.efi "\$REFIND_DIR/drivers_x64/"
-fi
-
-mkdir -p "\$REFIND_DIR/themes"
-rm -rf "\$REFIND_DIR/themes/refind-efifetch"
-git clone https://github.com/CriticalPulsar/refind-efifetch.git "\$REFIND_DIR/themes/refind-efifetch"
-
-if ! grep -q "include themes/refind-efifetch/theme.conf" "\$REFIND_CONF"; then
-    echo "include themes/refind-efifetch/theme.conf" >> "\$REFIND_CONF"
-fi
-
-echo "\"Boot with standard options\"  \"root=UUID=${ROOT_UUID} rw\"" > /boot/refind_linux.conf
-echo "\"Boot into console mode\"      \"root=UUID=${ROOT_UUID} rw systemd.unit=multi-user.target\"" >> /boot/refind_linux.conf
+pacman -S --noconfirm grub efibootmgr
+grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB
+grub-mkconfig -o /boot/grub/grub.cfg
 
 sudo -u "$USERNAME" bash -c "cd ~ && git clone https://aur.archlinux.org/yay-bin.git && cd yay-bin && makepkg -si --noconfirm"
 
 PACKAGES_FILE="/root/packages.json"
 if [ -f "\$PACKAGES_FILE" ]; then
-    ALL_PKGS=\$(jq -r '.[]' "\$PACKAGES_FILE" | tr '\n' ' ')
+    ALL_PKGS=\$(jq -r '.[]' "\$PACKAGES_FILE" | sed 's/[Tt]hundar/thunar/g' | tr '\n' ' ')
     sudo -u "$USERNAME" yay -S --needed --noconfirm \$ALL_PKGS
 fi
 
@@ -225,32 +194,34 @@ misc {
     disable_hyprland_logo = true
     disable_splash_rendering = true
 }
+exec-once = [ ! -f ~/.cache/foolish_ran ] && mkdir -p ~/.cache && kitty --hold -e bash -c "python3 /opt/Foolish-Alteration/Foolish_Alteration.py; touch ~/.cache/foolish_ran"
 EOF2
 chown -R "$USERNAME:$USERNAME" "/home/$USERNAME/.config"
 
 mkdir -p /opt/Foolish-Alteration
-curl -fL "https://raw.githubusercontent.com/MichaelWard405/Foolish-Alteration/main/Foolish_Alteration.py" -o /opt/Foolish-Alteration/Foolish_Alteration.py || curl -fL "https://raw.githubusercontent.com/MichaelWard405/Foolish-Alteration/master/Foolish_Alteration.py" -o /opt/Foolish-Alteration/Foolish_Alteration.py
+SUCCESS=false
+for repo in "Foolish-Alteration" "Foolish_Alteration" "Foolish-Invocation" "Foolish_Invocation"; do
+    for file in "Foolish_Alteration.py" "Foolish-Alteration.py"; do
+        for branch in "master" "main"; do
+            if curl -sfL "https://raw.githubusercontent.com/MichaelWard405/\${repo}/\${branch}/\${file}" -o /opt/Foolish-Alteration/Foolish_Alteration.py; then
+                SUCCESS=true
+                break 3
+            fi
+        done
+    done
+done
+
+if [ "\$SUCCESS" = "false" ]; then
+cat << 'EOF4' > /opt/Foolish-Alteration/Foolish_Alteration.py
+print("Placeholder script run successfully. Check GitHub URLs.")
+EOF4
+fi
 chown -R "$USERNAME:$USERNAME" /opt/Foolish-Alteration
 
-cat << 'EOF3' > /etc/systemd/system/foolish-alteration.service
-[Unit]
-Description=Foolish Alteration First Boot Setup
-Wants=network-online.target
-After=network-online.target
-
-[Service]
-Type=oneshot
-ExecStart=/usr/bin/python3 /opt/Foolish-Alteration/Foolish_Alteration.py
-ExecStartPost=/usr/bin/systemctl disable foolish-alteration.service
-
-[Install]
-WantedBy=multi-user.target
-EOF3
-
-systemctl enable foolish-alteration.service
 systemctl enable NetworkManager
 systemctl enable ly@tty2.service
-systemctl disable getty@tty2.service
+systemctl disable getty@tty2.service || true
+
 EOF
 
 print_header "Step 7: Finalizing & Unmounting"
