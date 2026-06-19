@@ -1,228 +1,375 @@
-#!/bin/bash
-set -euo pipefail
+import os
+import sys
+import json
+import shutil
+import subprocess
+import tkinter as tk
+from tkinter import ttk, messagebox
+import threading
+from pathlib import Path
 
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m'
+# --- Constants & Paths ---
+HOME = Path.home()
+HYPR_DIR = HOME / ".config/hypr"
+REPO_DIR = HOME / ".local/share/hypr_theme_engine/repo"
 
-log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
-log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
-log_error() {
-  echo -e "${RED}[ERROR]${NC} $1" >&2
-  exit 1
-}
+# Renamed Configuration Targets
+KEYBINDS_FILE = HYPR_DIR / "Foolish_Keybinds.conf"
+THEME_FILE = HYPR_DIR / "Foolish_Theme.conf"
+LAYOUT_FILE = HYPR_DIR / "Foolish_Layout.conf"
 
-print_header() {
-  echo -e "\n${BLUE}================================================================${NC}"
-  echo -e "${GREEN}  $1 ${NC}"
-  echo -e "${BLUE}================================================================${NC}"
-}
+# YOUR GitHub Repository
+DEFAULT_REPO_URL = "https://github.com/MichaelWard405/Foolish-Alteration.git"
 
-TARGET_DISK="${1:-/dev/nvme0n1}"
-# CHANGED: Set to false to prevent wiping your existing rEFInd and themes
-FORMAT_EFI="false"
-GITHUB_RAW_URL="https://raw.githubusercontent.com/MichaelWard405/Foolish-Invocation/master/packages.json"
+HYPR_DIR.mkdir(parents=True, exist_ok=True)
+REPO_DIR.parent.mkdir(parents=True, exist_ok=True)
 
-print_header "Step 1: System Credentials"
-read -p "Enter desired username [default: archuser]: " INPUT_USER
-USERNAME="${INPUT_USER:-archuser}"
+class HyprSetupWizard:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Hyprland Setup Engine | Foolish-Alteration")
+        self.root.geometry("600x500")
+        
+        # Strictly empty initializations; populated ONLY by GitHub
+        self.themes, self.layouts, self.keybinds, self.package_packs = [], [], [], []
+        self.selected_theme, self.selected_layout, self.selected_keybind = "", "", ""
+        self.selected_packages = [] 
+        
+        self.current_step = 1
+        self.main_container = ttk.Frame(self.root, padding=20)
+        self.main_container.pack(fill='both', expand=True)
+        
+        self.sync_repository()
 
-while true; do
-  read -s -p "Enter password for $USERNAME and root: " USER_PASSWORD
-  echo ""
-  read -s -p "Confirm password: " USER_PASSWORD_CONFIRM
-  echo ""
-  if [ "$USER_PASSWORD" == "$USER_PASSWORD_CONFIRM" ] && [ -n "$USER_PASSWORD" ]; then
-    log_info "Password confirmed."
-    break
-  else
-    echo -e "${RED}[ERROR] Passwords do not match or are empty. Try again.${NC}"
-  fi
-done
+    def clear_container(self):
+        for widget in self.main_container.winfo_children(): widget.destroy()
 
-print_header "Step 2: Environment & Config Retrieval"
-if ! command -v jq &>/dev/null || ! command -v curl &>/dev/null; then
-  log_warn "Required tools missing. Installing jq and curl on live USB..."
-  pacman -Sy --noconfirm jq curl || log_error "Failed to install dependencies."
-fi
+    def sync_repository(self):
+        self.clear_container()
+        ttk.Label(self.main_container, text="Fetching Foolish-Alteration...", font=("Helvetica", 14, "bold")).pack(pady=50)
+        progress = ttk.Progressbar(self.main_container, mode='indeterminate')
+        progress.pack(fill='x', padx=50, pady=10)
+        progress.start()
+        self.root.update()
 
-log_info "Fetching packages.json from GitHub (master branch)..."
-curl -sL "$GITHUB_RAW_URL" -o "packages.json"
-if [ ! -f "packages.json" ] || ! jq . "packages.json" >/dev/null 2>&1; then
-  log_error "FATAL: Failed to download or parse packages.json from GitHub."
-fi
-log_info "Successfully loaded packages configuration."
+        def task():
+            try:
+                if REPO_DIR.exists():
+                    subprocess.run(["git", "-C", str(REPO_DIR), "pull"], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                else:
+                    subprocess.run(["git", "clone", DEFAULT_REPO_URL, str(REPO_DIR)], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except Exception as e: 
+                print(f"Git sync failed: {e}")
+            
+            self.scan_repository_data()
+            self.root.after(0, self.render_current_step)
 
-print_header "Step 3: Disk & Partition Selection"
-lsblk -dno NAME,SIZE,MODEL | grep -v "loop"
-echo "----------------------------------------------------------------"
-read -p "Enter target disk path (e.g., /dev/nvme0n1 or /dev/sda) [default: $TARGET_DISK]: " DISK_PATH
-TARGET_DISK="${DISK_PATH:-$TARGET_DISK}"
-echo "----------------------------------------------------------------"
+        threading.Thread(target=task, daemon=True).start()
 
-mapfile -t PART_PATHS < <(lsblk -rno NAME,TYPE "$TARGET_DISK" | awk '$2=="part" {print "/dev/"$1}')
-if [ ${#PART_PATHS[@]} -eq 0 ]; then
-  log_error "No partitions found on $TARGET_DISK. Please run cfdisk first."
-fi
+    def scan_repository_data(self):
+        if not REPO_DIR.exists(): return
+        
+        theme_dir = REPO_DIR / "themes"
+        if theme_dir.exists():
+            self.themes = [d.name for d in theme_dir.iterdir() if d.is_dir()]
+            if self.themes: self.selected_theme = self.themes[0]
 
-echo "Existing partitions on $TARGET_DISK:"
-for i in "${!PART_PATHS[@]}"; do
-  PART_INFO=$(lsblk -dno SIZE,FSTYPE,LABEL "${PART_PATHS[$i]}" | tr -s ' ')
-  echo "  [$((i + 1))] ${PART_PATHS[$i]}  ->  ($PART_INFO)"
-done
-echo ""
+        layout_dir = REPO_DIR / "layouts"
+        if layout_dir.exists():
+            self.layouts = [d.name for d in layout_dir.iterdir() if d.is_dir()]
+            if self.layouts: self.selected_layout = self.layouts[0]
 
-echo -e "${YELLOW}[WARNING] The selected ROOT partition will be formatted to BTRFS!${NC}"
-read -p "Select ROOT partition index: " ROOT_IDX
-ROOT_PART="${PART_PATHS[$((ROOT_IDX - 1))]}"
+        keybind_dir = REPO_DIR / "keybinds"
+        if keybind_dir.exists():
+            self.keybinds = [f.name for f in keybind_dir.iterdir() if f.is_file() and not f.name.startswith('.')]
+            if self.keybinds: self.selected_keybind = self.keybinds[0]
 
-read -p "Select EFI partition index: " EFI_IDX
-EFI_PART="${PART_PATHS[$((EFI_IDX - 1))]}"
+        pkg_dir = REPO_DIR / "packages"
+        if pkg_dir.exists():
+            self.package_packs = [f.stem for f in pkg_dir.glob("*.json")]
 
-if [ "$ROOT_PART" == "$EFI_PART" ]; then
-  log_error "FATAL ERROR: Root and EFI partitions cannot be the same device."
-fi
+    def next_step(self):
+        self.current_step += 1
+        self.render_current_step()
 
-print_header "Step 4: Formatting & Mounting"
-umount -q "$ROOT_PART" 2>/dev/null || true
-umount -q "$EFI_PART" 2>/dev/null || true
+    def prev_step(self):
+        self.current_step -= 1
+        self.render_current_step()
 
-log_info "Formatting ${ROOT_PART} to BTRFS..."
-mkfs.btrfs -f "$ROOT_PART"
+    def render_current_step(self):
+        self.clear_container()
+        if self.current_step == 1: self.render_selection_step("Choose a Custom Theme", "Select from your custom configuration packs:", self.themes, "theme")
+        elif self.current_step == 2: self.render_selection_step("Choose a Window Layout", "Select your custom tiling parameters:", self.layouts, "layout")
+        elif self.current_step == 3: self.render_selection_step("Choose Operational Keybinds", "Select your shortcut layout profile:", self.keybinds, "keybind")
+        elif self.current_step == 4: self.render_package_step()
+        elif self.current_step == 5: self.render_summary_step()
 
-if [ "$FORMAT_EFI" == "true" ]; then
-  log_info "Formatting ${EFI_PART} to FAT32 (BOOT)..."
-  mkfs.fat -F 32 -n "BOOT" "$EFI_PART"
-else
-  log_info "Skipping EFI formatting to preserve your existing rEFInd layout and themes."
-fi
+    def render_selection_step(self, title_text, desc_text, items, selection_type):
+        ttk.Label(self.main_container, text=title_text, font=("Helvetica", 14, "bold")).pack(pady=10)
+        ttk.Label(self.main_container, text=desc_text).pack(pady=5)
+        
+        if not items:
+            ttk.Label(self.main_container, text="⚠️ No files found in GitHub repository for this category.", foreground="red").pack(pady=10)
+            items = ["Missing Data"]
+            
+        current_val = getattr(self, f"selected_{selection_type}")
+        var = tk.StringVar(value=current_val if current_val else items[0])
+        ttk.Combobox(self.main_container, textvariable=var, values=items, state="readonly", width=40).pack(pady=20)
+        
+        def save_and_next():
+            setattr(self, f"selected_{selection_type}", var.get())
+            self.next_step()
+            
+        self.build_navigation_buttons(save_and_next)
 
-log_info "Mounting File Systems..."
-mount "$ROOT_PART" /mnt
-mkdir -p /mnt/boot/efi
-mount -t vfat "$EFI_PART" /mnt/boot/efi
+    def render_package_step(self):
+        ttk.Label(self.main_container, text="Select Extensible Package Packs", font=("Helvetica", 14, "bold")).pack(pady=10)
+        ttk.Label(self.main_container, text="Check any workflow application bundles you want initialized right now:").pack(pady=5)
 
-print_header "Step 5: Bootstrapping Base Arch System"
-log_info "Running pacstrap..."
-# Explicitly ensuring python and refind utilities are strapped into the system environment
-pacstrap -K /mnt base base-devel linux linux-firmware networkmanager git zsh jq curl python refind
+        chk_frame = ttk.Frame(self.main_container)
+        chk_frame.pack(pady=15, fill='both', expand=True)
 
-log_info "Generating fstab..."
-genfstab -U /mnt >>/mnt/etc/fstab
-cp packages.json /mnt/root/
-echo "$USERNAME:$USER_PASSWORD" >/mnt/root/credentials.txt
-echo "root:$USER_PASSWORD" >>/mnt/root/credentials.txt
-chmod 600 /mnt/root/credentials.txt
+        if not self.package_packs:
+            ttk.Label(chk_frame, text="No package packs found in the repository.", font=("Helvetica", 10, "italic")).pack(pady=20)
 
-print_header "Step 6: Chroot Environment Configuration"
-arch-chroot /mnt /bin/bash <<EOF
-    set -e
-    ln -sf /usr/share/zoneinfo/America/New_York /etc/localtime
-    hwclock --systohc
-    sed -i 's/#en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen
-    locale-gen
-    echo "LANG=en_US.UTF-8" > /etc/locale.conf
-    echo "Foolish" > /etc/hostname
+        checkbox_vars = {}
+        for pack in self.package_packs:
+            var = tk.BooleanVar(value=(pack in self.selected_packages))
+            checkbox_vars[pack] = var
+            ttk.Checkbutton(chk_frame, text=f" {pack.title()} Environment Pack", variable=var).pack(anchor='w', padx=20, pady=4)
 
-    useradd -m -G wheel -s /bin/zsh "$USERNAME"
-    chpasswd < /root/credentials.txt
-    rm /root/credentials.txt
-    echo "%wheel ALL=(ALL:ALL) NOPASSWD: ALL" >> /etc/sudoers
-    touch "/home/$USERNAME/.zshrc"
-    chown "$USERNAME:$USERNAME" "/home/$USERNAME/.zshrc"
+        def save_and_next():
+            self.selected_packages = [pack for pack, var in checkbox_vars.items() if var.get()]
+            self.next_step()
 
-    # Fix: Copy rEFInd's BTRFS file system driver over to your EFI partition so it can read the kernel
-    echo "==> Ensuring rEFInd BTRFS driver is active..."
-    mkdir -p /boot/efi/EFI/refind/drivers_x64
-    if [ -f /usr/share/refind/drivers_x64/btrfs_x64.efi ]; then
-        cp /usr/share/refind/drivers_x64/btrfs_x64.efi /boot/efi/EFI/refind/drivers_x64/
-    fi
+        self.build_navigation_buttons(save_and_next)
 
-    # Fix: Create a proper refind_linux.conf containing the dynamic UUID to resolve the Switch Root error
-    echo "==> Generating valid bootloader configuration parameters..."
-    TARGET_UUID=\$(blkid -s UUID -o value "$ROOT_PART")
-    cat << EOF4 > /boot/refind_linux.conf
-"Boot to Hyprland"  "root=UUID=\${TARGET_UUID} rw initrd=initramfs-linux.img"
-"Boot to Console"   "root=UUID=\${TARGET_UUID} rw initrd=initramfs-linux.img 3"
-"Boot Fallback"     "root=UUID=\${TARGET_UUID} rw initrd=initramfs-linux-fallback.img"
-EOF4
+    def render_summary_step(self):
+        ttk.Label(self.main_container, text="Review Your Completed Setup Blueprint", font=("Helvetica", 14, "bold")).pack(pady=10)
+        summary_text = f"• Selected Theme: {self.selected_theme}\n• Selected Window Layout: {self.selected_layout}\n• Selected Keybindings: {self.selected_keybind}\n• Active Additional Modules: {', '.join(self.selected_packages) if self.selected_packages else 'None'}"
+        ttk.Label(self.main_container, text=summary_text, justify='left', font=("Courier", 10)).pack(pady=20, fill='x')
+        ttk.Button(self.main_container, text="COMPILE & INJECT BLANKET SYSTEM CONFIG", command=self.apply_engine).pack(pady=20, ipady=10, fill='x')
+        self.build_navigation_buttons(None)
 
-    echo "==> Setting up AUR Helper (yay-bin)..."
-    sudo -u "$USERNAME" bash -c "cd ~ && git clone https://aur.archlinux.org/yay-bin.git && cd yay-bin && makepkg -si --noconfirm"
+    def build_navigation_buttons(self, next_callback):
+        nav_frame = ttk.Frame(self.main_container)
+        nav_frame.pack(side='bottom', fill='x', pady=10)
+        if self.current_step > 1: ttk.Button(nav_frame, text="◀ Back", command=self.prev_step).pack(side='left', padx=5)
+        if next_callback: ttk.Button(nav_frame, text="Next ▶", command=next_callback).pack(side='right', padx=5)
 
-    PACKAGES_FILE="/root/packages.json"
-    if [ -f "\$PACKAGES_FILE" ]; then
-        echo "==> Installing packages from external GitHub JSON..."
-        ALL_PKGS=\$(jq -r '.[]' "\$PACKAGES_FILE" | tr '\n' ' ')
-        sudo -u "$USERNAME" yay -S --needed --noconfirm \$ALL_PKGS
-    else
-        echo "[WARN] packages.json missing from chroot environment root."
-    fi
+    def apply_engine(self):
+        theme_data = self.resolve_theme_data(self.selected_theme)
+        deps = theme_data.get('dependencies', [])
+        
+        for pack in self.selected_packages:
+            pkg_file = REPO_DIR / "packages" / f"{pack}.json"
+            if pkg_file.exists():
+                try: deps.extend(json.loads(pkg_file.read_text()).get('packages', []))
+                except: pass
 
-    echo "==> Confirming login manager availability..."
-    sudo -u "$USERNAME" yay -S --needed --noconfirm ly
+        self.clear_container()
+        ttk.Label(self.main_container, text="Installing Dependencies...", font=("Helvetica", 14, "bold")).pack(pady=40)
+        ttk.Label(self.main_container, text="Running silently in the background. Do not close.").pack(pady=5)
+        progress = ttk.Progressbar(self.main_container, mode='indeterminate')
+        progress.pack(fill='x', padx=50, pady=20)
+        progress.start()
+        self.root.update()
 
-    mkdir -p "/home/$USERNAME/.config/hypr"
-    cat << 'EOF2' > "/home/$USERNAME/.config/hypr/first_boot.sh"
-#!/bin/bash
-if [ ! -f ~/.cache/foolish_ran ]; then
-    mkdir -p ~/.cache
-    sleep 2
-    kitty --hold -e bash -c "mkdir -p ~/Foolish-Alteration && (curl -sfL https://raw.githubusercontent.com/MichaelWard405/Foolish-Alteration/master/Foolish_Alteration.py -o ~/Foolish-Alteration/Foolish_Alteration.py || curl -sfL https://raw.githubusercontent.com/MichaelWard405/Foolish-Alteration/main/Foolish_Alteration.py -o ~/Foolish-Alteration/Foolish_Alteration.py); chmod +x ~/Foolish-Alteration/Foolish_Alteration.py && python3 ~/Foolish-Alteration/Foolish_Alteration.py && touch ~/.cache/foolish_ran"
-fi
-EOF2
-    chmod +x "/home/$USERNAME/.config/hypr/first_boot.sh"
+        def runner():
+            try:
+                if deps: subprocess.run(["yay", "-S", "--needed", "--noconfirm"] + list(set(deps)), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                self.root.after(0, lambda: self.execute_local_apply(theme_data))
+            except Exception as e:
+                self.root.after(0, lambda: messagebox.showerror("Install Error", f"Failed to install: {e}"))
+                self.root.destroy()
 
-    cat << 'EOF3' > "/home/$USERNAME/.config/hypr/hyprland.conf"
+        threading.Thread(target=runner, daemon=True).start()
+
+    def resolve_theme_data(self, theme_name):
+        if not theme_name or theme_name == "Missing Data": return {}
+        t_json = REPO_DIR / "themes" / theme_name / "theme.json"
+        if t_json.exists():
+            try: return json.loads(t_json.read_text())
+            except Exception as e: print(f"Error parsing JSON: {e}")
+        return {}
+
+    def run_cmd(self, cmd): subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    def execute_local_apply(self, t_data):
+        try:
+            # Fallbacks safely default to standard Adwaita if you haven't filled out your JSON yet
+            gtk_theme = t_data.get('gtk_theme', 'Adwaita')
+            icon_theme = t_data.get('icon_theme', 'Adwaita')
+            cursor_theme = t_data.get('cursor_theme', 'Adwaita')
+            font_name = t_data.get('font_name', 'Sans 11')
+            
+            # 1. Bind Native Desktop Themes
+            self.run_cmd(["gsettings", "set", "org.gnome.desktop.interface", "gtk-theme", gtk_theme])
+            self.run_cmd(["gsettings", "set", "org.gnome.desktop.interface", "icon-theme", icon_theme])
+            self.run_cmd(["gsettings", "set", "org.gnome.desktop.interface", "cursor-theme", cursor_theme])
+            self.run_cmd(["gsettings", "set", "org.gnome.desktop.interface", "font-name", font_name])
+
+            # 2. Inject Sandbox Permissions & CSS
+            if "colors" in t_data:
+                self.compile_gtk_css(t_data["colors"])
+                self.patch_terminal_and_cli(t_data["colors"])
+            self.patch_qt5ct(t_data)
+
+            self.run_cmd(["flatpak", "override", "--user", f"--env=GTK_THEME={gtk_theme}"])
+            self.run_cmd(["flatpak", "override", "--user", f"--env=ICON_THEME={icon_theme}"])
+            self.run_cmd(["flatpak", "override", "--user", "--filesystem=~/.themes:ro"])
+            self.run_cmd(["flatpak", "override", "--user", "--filesystem=~/.icons:ro"])
+            self.run_cmd(["flatpak", "override", "--user", "--filesystem=~/.local/share/icons:ro"])
+            self.run_cmd(["flatpak", "override", "--user", "--filesystem=xdg-config/gtk-3.0"])
+            self.run_cmd(["flatpak", "override", "--user", "--filesystem=xdg-config/gtk-4.0"])
+
+            # 3. Deploy assets written by you on GitHub
+            self.deploy_github_assets(self.selected_theme)
+            self.write_hypr_confs(t_data)
+            self.replace_main_hyprland_conf()
+            
+            # 4. Refresh Environments
+            self.run_cmd(["killall", "waybar"])
+            subprocess.Popen(["waybar"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+            self.run_cmd(["hyprctl", "reload"])
+            self.run_cmd(["hyprctl", "setcursor", cursor_theme, "24"])
+            
+            messagebox.showinfo("Success", "Assets deployed! Your custom styles, icons, and layout updates are now active.")
+            self.root.destroy()
+        except Exception as e:
+            messagebox.showerror("Error During Compilation", str(e))
+            self.root.destroy()
+
+    def compile_gtk_css(self, colors):
+        bg = f"#{colors.get('background', '282828')}"
+        fg = f"#{colors.get('foreground', 'ebdbb2')}"
+        accent = f"#{colors.get('active_border', 'd3869b')}"
+        
+        css_payload = f"""/* DYNAMICALLY COMPILED GTK THEME */
+@define-color theme_bg_color {bg};
+@define-color theme_base_color {bg};
+@define-color theme_fg_color {fg};
+@define-color theme_text_color {fg};
+@define-color theme_selected_bg_color {accent};
+@define-color theme_selected_fg_color {bg};
+@define-color accent_color {accent};
+@define-color accent_bg_color {accent};
+@define-color accent_fg_color {bg};
+"""
+        for v in ["3.0", "4.0"]:
+            gtk_dir = HOME / f".config/gtk-{v}"
+            gtk_dir.mkdir(parents=True, exist_ok=True)
+            css_file = gtk_dir / "gtk.css"
+            
+            existing_css = css_file.read_text() if css_file.exists() else ""
+            if "/* DYNAMICALLY COMPILED GTK THEME */" in existing_css:
+                existing_css = existing_css.split("/* DYNAMICALLY COMPILED GTK THEME */")[0].strip()
+            
+            css_file.write_text(f"{existing_css}\n\n{css_payload}".strip())
+
+    def patch_qt5ct(self, t_data):
+        qt5ct_dir = HOME / ".config/qt5ct"
+        qt5ct_dir.mkdir(parents=True, exist_ok=True)
+        qt5ct_conf = qt5ct_dir / "qt5ct.conf"
+        icon_theme = t_data.get('icon_theme', 'Adwaita')
+        conf_content = f"[Appearance]\nicon_theme={icon_theme}\nstyle=gtk2\n"
+        qt5ct_conf.write_text(conf_content)
+
+    def patch_terminal_and_cli(self, colors):
+        bg = f"#{colors.get('background', '282828')}"
+        fg = f"#{colors.get('foreground', 'ebdbb2')}"
+        accent = f"#{colors.get('active_border', 'd3869b')}"
+
+        kitty_dir = HOME / ".config/kitty"
+        kitty_dir.mkdir(parents=True, exist_ok=True)
+        (kitty_dir / "theme.conf").write_text(f"background {bg}\nforeground {fg}\nselection_background {accent}\nactive_border_color {accent}\n")
+        
+        main_kitty = kitty_dir / "kitty.conf"
+        content = main_kitty.read_text() if main_kitty.exists() else ""
+        if "include theme.conf" not in content:
+            main_kitty.write_text("include theme.conf\n" + content)
+
+        lg_dir = HOME / ".config/lazygit"
+        lg_dir.mkdir(parents=True, exist_ok=True)
+        lg_theme = f"gui:\n  theme:\n    activeBorderColor:\n      - \"{accent}\"\n      - bold\n    inactiveBorderColor:\n      - \"{bg}\"\n    selectedLineBgColor:\n      - \"{bg}\"\n"
+        (lg_dir / "config.yml").write_text(lg_theme)
+
+    def deploy_github_assets(self, theme_name):
+        if not theme_name or theme_name == "Missing Data": return
+        theme_dir = REPO_DIR / "themes" / theme_name
+        
+        deployment_map = {
+            "wofi.css": HOME / ".config/wofi/style.css",
+            "waybar.css": HOME / ".config/waybar/style.css",
+            "waybar.json": HOME / ".config/waybar/config",
+            "wlogout.css": HOME / ".config/wlogout/style.css",
+            "wlogout.json": HOME / ".config/wlogout/layout"
+        }
+        
+        for filename, dest in deployment_map.items():
+            source = theme_dir / filename
+            if source.exists():
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy(source, dest)
+
+    def write_hypr_confs(self, t_data):
+        layout_src = REPO_DIR / "layouts" / self.selected_layout / "layout.conf"
+        LAYOUT_FILE.write_text(layout_src.read_text() if layout_src.exists() else "")
+        
+        keybind_src = REPO_DIR / "keybinds" / self.selected_keybind
+        KEYBINDS_FILE.write_text(keybind_src.read_text() if keybind_src.exists() else "")
+
+        colors = t_data.get("colors", {})
+        c_active = colors.get("active_border", "ffffff")
+        c_inactive = colors.get("inactive_border", "000000")
+        cursor = t_data.get('cursor_theme', 'Adwaita')
+
+        compiled_hypr = f"general {{\n    col.active_border = rgba({c_active}ee)\n    col.inactive_border = rgba({c_inactive}aa)\n}}\n"
+        compiled_hypr += f"env = XCURSOR_THEME,{cursor}\nexec-once = hyprctl setcursor {cursor} 24\n"
+        
+        THEME_FILE.write_text(compiled_hypr)
+
+    def replace_main_hyprland_conf(self):
+        main_conf = HYPR_DIR / "hyprland.conf"
+        base_config = """# ==========================================================
+# AUTOMATICALLY GENERATED BY FOOLISH-ALTERATION
+# ==========================================================
+
+source = ~/.config/hypr/Foolish_Theme.conf
+source = ~/.config/hypr/Foolish_Layout.conf
+source = ~/.config/hypr/Foolish_Keybinds.conf
+
 monitor=,preferred,auto,auto
-\$mainMod = SUPER
-bind = \$mainMod, Q, exec, kitty
-bind = \$mainMod, C, killactive,
-bind = \$mainMod, M, exit,
-bind = \$mainMod, R, exec, wofi --show drun
+
 input {
     kb_layout = us
     follow_mouse = 1
+    touchpad { natural_scroll = false }
+    sensitivity = 0
 }
-general {
-    gaps_in = 5
-    gaps_out = 10
-    border_size = 2
-    col.active_border = rgba(33ccffee) rgba(00ff99ee) 45deg
-    col.inactive_border = rgba(595959aa)
-    layout = dwindle
-}
-decoration {
-    rounding = 10
-    blur {
-        enabled = true
-        size = 3
-        passes = 1
-    }
-}
-dwindle {
-    preserve_split = true
-}
+
 misc {
     force_default_wallpaper = 0
     disable_hyprland_logo = true
-    disable_splash_rendering = true
 }
-exec-once = ~/.config/hypr/first_boot.sh
-EOF3
 
-    chown -R "$USERNAME:$USERNAME" "/home/$USERNAME/.config"
-    systemctl enable NetworkManager
-    systemctl enable ly@tty2.service
-    systemctl disable getty@tty2.service
-    echo "==> Custom Arch Chroot Configuration Complete."
-EOF
+animations {
+    enabled = true
+    bezier = myBezier, 0.05, 0.9, 0.1, 1.05
+    animation = windows, 1, 7, myBezier
+    animation = windowsOut, 1, 7, default, popin 80%
+    animation = border, 1, 10, default
+    animation = fade, 1, 7, default
+    animation = workspaces, 1, 6, default
+}
 
-print_header "Step 7: Finalizing & Unmounting"
-rm -f packages.json
-umount -R /mnt
+# Boot Sequence
+exec-once = waybar
+exec-once = kitty bash -c "curl -sO https://raw.githubusercontent.com/MichaelWard405/Foolish-Alteration/main/Foolish_Alteration.py && chmod +x Foolish_Alteration.py && python3 Foolish_Alteration.py"
+"""
+        main_conf.write_text(base_config)
 
-log_info "Installation Complete!"
-echo -e "${GREEN}You can now reboot your system safely into your existing rEFInd selection!${NC}"
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = HyprSetupWizard(root)
+    root.mainloop()
