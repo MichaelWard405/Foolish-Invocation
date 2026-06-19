@@ -92,7 +92,7 @@ if [ ${#PART_PATHS[@]} -eq 0 ]; then
   log_error "No Partitions Found On $TARGET_DISK"
 fi
 for i in "${!PART_PATHS[@]}"; do
-  PART_INFO=$(lsblk -dno SIZE,FSTYLE,LABEL "${PART_PATHS[$i]}" | tr -s ' ')
+  PART_INFO=$(lsblk -dno SIZE,FSTYPE,LABEL "${PART_PATHS[$i]}" | tr -s ' ')
   echo "  [$((i + 1))] ${PART_PATHS[$i]} -> ($PART_INFO)"
 done
 read -p "Select ROOT Partition [BTRFS]: " ROOT_IDX
