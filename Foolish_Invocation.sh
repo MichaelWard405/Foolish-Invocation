@@ -213,5 +213,5 @@ EOF
 print_header "Step 7: Finalizing & Unmounting"
 rm -f packages.json
 umount -R /mnt
-log_info"Install [Completed]"
+log_info "Install [Completed]"
 echo -e "${GREEN} You Can Now 'Reboot' into your Operating System"
