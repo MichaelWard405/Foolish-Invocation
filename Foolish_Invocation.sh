@@ -21,7 +21,6 @@ log_error() {
 }
 
 TARGET_DISK="${1:-/dev/sda}"
-FORMAT_EFI="true"
 GITHUB_RAW_URL="https://raw.githubusercontent.com/MichaelWard405/Foolish-Invocation/master/packages.json"
 
 print_header "Step 1: System Credentials"
@@ -116,11 +115,11 @@ if [ -f /usr/share/refind/drivers_x64/btrfs_x64.efi ]; then
     cp /usr/share/refind/drivers_x64/btrfs_x64.efi /boot/efi/EFI/refind/drivers_x64/
 fi
 
+# Fixed the initrd path here to point inside the /boot/ directory
 TARGET_UUID=\$(blkid -s UUID -o value "$ROOT_PART")
 cat << EOF_REFIND > /boot/refind_linux.conf
-"Boot to Hyprland"  "root=UUID=\${TARGET_UUID} rw initrd=initramfs-linux.img"
-"Boot to Console"   "root=UUID=\${TARGET_UUID} rw initrd=initramfs-linux.img 3"
-"Boot Fallback"     "root=UUID=\${TARGET_UUID} rw initrd=initramfs-linux-fallback.img"
+"Boot to Hyprland"  "root=UUID=\${TARGET_UUID} rw initrd=/boot/initramfs-linux.img"
+"Boot Fallback"     "root=UUID=\${TARGET_UUID} rw initrd=/boot/initramfs-linux-fallback.img"
 EOF_REFIND
 
 git clone https://github.com/CriticalPulsar/refind-efifetch /boot/efi/EFI/refind/themes/refind-efifetch
@@ -134,22 +133,15 @@ if [ -f "\$PACKAGES_FILE" ]; then
     sudo -u "$USERNAME" yay -S --needed --noconfirm \$ALL_PKGS
 fi
 
-sudo -u "$USERNAME" yay -S --needed --noconfirm ly
+# Set up the Python script directly
+mkdir -p "/home/$USERNAME/Foolish-Alteration"
+curl -sLo "/home/$USERNAME/Foolish-Alteration/Foolish_Alteration.py" "https://raw.githubusercontent.com/MichaelWard405/Foolish-Alteration/main/Foolish_Alteration.py"
+chmod +x "/home/$USERNAME/Foolish-Alteration/Foolish_Alteration.py"
+chown -R "$USERNAME:$USERNAME" "/home/$USERNAME/Foolish-Alteration"
 
 mkdir -p "/home/$USERNAME/.config/hypr"
 
-cat << 'EOF_FIRST_BOOT' > "/home/$USERNAME/.config/hypr/first_boot.sh"
-#!/bin/bash
-if [ -f ~/.cache/foolish_ran ]; then exit 0; fi
-
-mkdir -p ~/.cache ~/Foolish-Alteration
-kitty --hold -e bash -c "curl -sLo ~/Foolish-Alteration/Foolish_Alteration.py https://raw.githubusercontent.com/MichaelWard405/Foolish-Alteration/main/Foolish_Alteration.py && chmod +x ~/Foolish-Alteration/Foolish_Alteration.py && python3 ~/Foolish-Alteration/Foolish_Alteration.py"
-
-touch ~/.cache/foolish_ran
-EOF_FIRST_BOOT
-
-chmod +x "/home/$USERNAME/.config/hypr/first_boot.sh"
-
+# Exec-once directly launches the Python file
 cat << 'EOF_HYPR' > "/home/$USERNAME/.config/hypr/hyprland.conf"
 monitor=,preferred,auto,auto
 \$mainMod = SUPER
@@ -185,7 +177,7 @@ misc {
     disable_hyprland_logo = true
     disable_splash_rendering = true
 }
-exec-once = ~/.config/hypr/first_boot.sh
+exec-once = kitty --hold -e python3 ~/Foolish-Alteration/Foolish_Alteration.py
 EOF_HYPR
 
 chown -R "$USERNAME:$USERNAME" "/home/$USERNAME/.config"
@@ -199,4 +191,4 @@ rm -f packages.json
 umount -R /mnt
 
 log_info "Installation Complete!"
-echo -e "${GREEN}You can now reboot. rEFInd will load with your theme, BTRFS will mount, and your Python script will execute cleanly in Kitty on first login.${NC}"
+echo -e "${GREEN}You can now reboot. The bootloader paths are corrected and Hyprland will launch your Python script natively on first boot.${NC}"
