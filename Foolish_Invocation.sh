@@ -13,8 +13,8 @@ print_header() {
   echo -e "${GREEN} $1 ${NC}"
   echo -e "${BLUE}================================================${NC}"
 }
-log_info() {echo -e "${GREEN}[INFO]${NC} $1"; }
-log_warn() {echo -e "${YELLOW}[WARN]${NC} $1"; }
+log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
+log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() {
   echo -e "${RED}[ERROR]${NC} $1" >&2
   exit 1
@@ -41,7 +41,7 @@ while true; do
   echo ""
   if [ "$USER_PASSWORD" == "$USER_PASSWORD_CONOFIRM" ] && [ -n "$USER_PASSWORD" ]; then
     log_info "Password [CONFIRMED]"
-    break 
+    break
   else
     echo -e "${RED}Password [FAILED]: Fields are empty or do not match. ${NC}"
   fi
@@ -53,7 +53,7 @@ done
 print_header "Step 2: Enviroment & Config Retrieval"
 if ! command -v -jq &>/dev/null || ! command -v curl &>/dev/null; then
   pacman -Sy --noconfirm jq curl || log_error "Failed To install dependencies"
-fi 
+fi
 curl -sL "$GITHUB_RAW_URL" -o "packages.json"
 if [ ! -f "packages.json" ] || ! jq . "packages.json" >/dev/null 2>&1; then
   log_error "[FATAL] [ERROR]: Failed To Download Or Parse 'packages.json' From GitHub"
@@ -72,7 +72,7 @@ read -p "Enter Choice [1-4]: " GPU_CHOICE
 case $GPU_CHOICE in
 1) GPU_PKGS="mesa vulkan-radeon xf86-video-amdgpu" ;;
 2) GPU_PKGS="mesa vulkan-intel xf86-video-intel" ;;
-3) 
+3)
   GPU_PKGS="nvidia-utils"
   NVIDIA_PARAM="nvidia_drm.modeset=1"
   ;;
@@ -130,7 +130,7 @@ chmod 600 /mnt/root/credentials.txt
 #  Step 6: Chroot Config
 #=========================
 print_header "Step 6: Chroot Enviroment Configuration"
-arch-chroot /mnt /bin/bash<<EOF
+arch-chroot /mnt /bin/bash <<EOF
 set -e
 ln -sF /usr/share/zoneinfo/Australia/Brisbane /etc/localtime
 hwclock --systohc
