@@ -87,7 +87,7 @@ print_header "step 3: Disk & Partition Selection"
 lsblk -dno NAME,SIZE,MODEL | grep -v "loop"
 read -p "Enter Target Disk Path [Default: $TARGET_DISK]: " DISK_PATH
 TARGET_DISK="${DISK_PATH:-$TARGET_DISK}"
-mapfile -t PART_PATHS < <(lsblk -rno NAME,TYPE "$TARGET_DISK" | awk '$2=="part" {print "/dev/$1"}')
+mapfile -t PART_PATHS < <(lsblk -rno NAME,TYPE "$TARGET_DISK" | awk '$2=="part" {print "/dev/"$1}')
 if [ ${#PART_PATHS[@]} -eq 0 ]; then
   log_error "No Partitions Found On $TARGET_DISK"
 fi
