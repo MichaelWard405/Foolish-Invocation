@@ -84,8 +84,8 @@ mkdir -p /mnt/boot/efi
 mount -t vfat "$EFI_PART" /mnt/boot/efi
 
 print_header "Step 5: Bootstrapping Base Arch System"
-# Added 'ly' directly here so the unit files exist before the chroot environment even runs
-pacstrap -K /mnt base base-devel linux linux-firmware networkmanager git zsh jq curl python btrfs-progs refind ly
+# Swapped 'hyprland' out for 'niri' directly here to prep foundational packages
+pacstrap -K /mnt base base-devel linux linux-firmware networkmanager git zsh jq curl python btrfs-progs refind ly niri
 
 genfstab -U /mnt >>/mnt/etc/fstab
 cp packages.json /mnt/root/
@@ -118,7 +118,7 @@ fi
 
 TARGET_UUID=\$(blkid -s UUID -o value "$ROOT_PART")
 cat << EOF_REFIND > /boot/refind_linux.conf
-"Boot to Hyprland"  "root=UUID=\${TARGET_UUID} rw initrd=/boot/initramfs-linux.img"
+"Boot to Niri"      "root=UUID=\${TARGET_UUID} rw initrd=/boot/initramfs-linux.img"
 "Boot Fallback"     "root=UUID=\${TARGET_UUID} rw initrd=/boot/initramfs-linux-fallback.img"
 EOF_REFIND
 
@@ -135,58 +135,65 @@ fi
 
 # Set up the Python script directly
 mkdir -p "/home/$USERNAME/Foolish-Alteration"
-curl -sLo "/home/$USERNAME/Foolish-Alteration/Foolish_Alteration.py" "https://raw.githubusercontent.com/MichaelWard405/Foolish-Alteration/main/Foolish_Alteration.py"
+
+# Fixed: Added the -f flag to curl so it fails properly if a 404 occurs.
+# Added a fallback echo to write a valid Python script, avoiding SyntaxErrors.
+if ! curl -fsLo "/home/$USERNAME/Foolish-Alteration/Foolish_Alteration.py" "https://raw.githubusercontent.com/MichaelWard405/Foolish-Alteration/main/Foolish_Alteration.py"; then
+    echo "print('ERROR: The online script failed to download. Please check your repository URL!')" > "/home/$USERNAME/Foolish-Alteration/Foolish_Alteration.py"
+fi
+
 chmod +x "/home/$USERNAME/Foolish-Alteration/Foolish_Alteration.py"
 chown -R "$USERNAME:$USERNAME" "/home/$USERNAME/Foolish-Alteration"
 
-mkdir -p "/home/$USERNAME/.config/hypr"
+# Create Niri's config directory
+mkdir -p "/home/$USERNAME/.config/niri"
 
-# Exec-once directly launches the Python file
-cat << 'EOF_HYPR' > "/home/$USERNAME/.config/hypr/hyprland.conf"
-monitor=,preferred,auto,auto
-\$mainMod = SUPER
-bind = \$mainMod, Q, exec, kitty
-bind = \$mainMod, C, killactive,
-bind = \$mainMod, M, exit,
-bind = \$mainMod, R, exec, wofi --show drun
+# Generate proper KDL-format layout file for Niri session
+cat << EOF_NIRI > "/home/$USERNAME/.config/niri/config.kdl"
 input {
-    kb_layout = us
-    follow_mouse = 1
-}
-general {
-    gaps_in = 5
-    gaps_out = 10
-    border_size = 2
-    col.active_border = rgba(33ccffee) rgba(00ff99ee) 45deg
-    col.inactive_border = rgba(595959aa)
-    layout = dwindle
-}
-decoration {
-    rounding = 10
-    blur {
-        enabled = true
-        size = 3
-        passes = 1
+    keyboard {
+        xkb {
+            layout "us"
+        }
     }
 }
-dwindle {
-    preserve_split = true
+
+layout {
+    gaps 5
+    border {
+        width 2
+        active-color "#33ccff"
+        inactive-color "#595959"
+    }
 }
-misc {
-    force_default_wallpaper = 0
-    disable_hyprland_logo = true
-    disable_splash_rendering = true
+
+// Compositor startup hooks (replaces Hyprland's exec-once)
+spawn-at-startup "waybar"
+spawn-at-startup "kitty" "--hold" "-e" "python3" "/home/$USERNAME/Foolish-Alteration/Foolish_Alteration.py"
+
+// Window bindings (replaces Hyprland's bind syntax)
+binds {
+    Mod+Q { spawn "kitty"; }
+    Mod+C { close-window; }
+    Mod+M { quit skip-confirmation=true; }
+    Mod+R { spawn "wofi" "--show" "drun"; }
+    
+    Mod+Left  { focus-column-left; }
+    Mod+Right { focus-column-right; }
+    Mod+Down  { focus-window-down; }
+    Mod+Up    { focus-window-up; }
+    
+    Mod+Shift+Left  { move-column-left; }
+    Mod+Shift+Right { move-column-right; }
+    Mod+Shift+Down  { move-window-down; }
+    Mod+Shift+Up    { move-window-up; }
 }
-exec-once = kitty --hold -e python3 ~/Foolish-Alteration/Foolish_Alteration.py
-EOF_HYPR
+EOF_NIRI
 
 chown -R "$USERNAME:$USERNAME" "/home/$USERNAME/.config"
 
-# Force systemd to recognize new unit files before enabling
 systemctl daemon-reload
 systemctl enable NetworkManager
-
-# Corrected back to the proper modern ly command, which will now successfully find the unit
 systemctl enable ly@tty2.service
 systemctl disable getty@tty2.service
 EOF
@@ -196,4 +203,4 @@ rm -f packages.json
 umount -R /mnt
 
 log_info "Installation Complete!"
-echo -e "${GREEN}You can now reboot. The correct 'ly@tty2' unit is properly enabled, and your Python cleanup script will launch on the very first Hyprland boot.${NC}"
+echo -e "${GREEN}You can now reboot. The system is configured to launch Niri via Ly on tty2, and your script will run safely!${NC}"
