@@ -84,7 +84,8 @@ mkdir -p /mnt/boot/efi
 mount -t vfat "$EFI_PART" /mnt/boot/efi
 
 print_header "Step 5: Bootstrapping Base Arch System"
-pacstrap -K /mnt base base-devel linux linux-firmware networkmanager git zsh jq curl python btrfs-progs refind
+# Added 'ly' directly here so the unit files exist before the chroot environment even runs
+pacstrap -K /mnt base base-devel linux linux-firmware networkmanager git zsh jq curl python btrfs-progs refind ly
 
 genfstab -U /mnt >>/mnt/etc/fstab
 cp packages.json /mnt/root/
@@ -115,7 +116,6 @@ if [ -f /usr/share/refind/drivers_x64/btrfs_x64.efi ]; then
     cp /usr/share/refind/drivers_x64/btrfs_x64.efi /boot/efi/EFI/refind/drivers_x64/
 fi
 
-# Fixed the initrd path here to point inside the /boot/ directory
 TARGET_UUID=\$(blkid -s UUID -o value "$ROOT_PART")
 cat << EOF_REFIND > /boot/refind_linux.conf
 "Boot to Hyprland"  "root=UUID=\${TARGET_UUID} rw initrd=/boot/initramfs-linux.img"
@@ -181,7 +181,12 @@ exec-once = kitty --hold -e python3 ~/Foolish-Alteration/Foolish_Alteration.py
 EOF_HYPR
 
 chown -R "$USERNAME:$USERNAME" "/home/$USERNAME/.config"
+
+# Force systemd to recognize new unit files before enabling
+systemctl daemon-reload
 systemctl enable NetworkManager
+
+# Corrected back to the proper modern ly command, which will now successfully find the unit
 systemctl enable ly@tty2.service
 systemctl disable getty@tty2.service
 EOF
@@ -191,4 +196,4 @@ rm -f packages.json
 umount -R /mnt
 
 log_info "Installation Complete!"
-echo -e "${GREEN}You can now reboot. The bootloader paths are corrected and Hyprland will launch your Python script natively on first boot.${NC}"
+echo -e "${GREEN}You can now reboot. The correct 'ly@tty2' unit is properly enabled, and your Python cleanup script will launch on the very first Hyprland boot.${NC}"
