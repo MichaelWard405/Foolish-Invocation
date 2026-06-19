@@ -19,5 +19,7 @@
     "tumbler",
     "wlogout",
     "qt5ct",
-    "python"
+    "python",
+    "ttf-dejavu",
+    "ttf-nerd-fonts-symbols"
 ]

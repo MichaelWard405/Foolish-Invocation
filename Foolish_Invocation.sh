@@ -48,6 +48,27 @@ if [ ! -f "packages.json" ] || ! jq . "packages.json" >/dev/null 2>&1; then
   log_error "FATAL: Failed to download or parse packages.json from GitHub."
 fi
 
+print_header "Step 2.5: Graphics Driver Selection"
+echo "Select your graphics card vendor for the correct Wayland drivers:"
+echo "  [1] AMD (mesa, vulkan-radeon, xf86-video-amdgpu)"
+echo "  [2] Intel (mesa, vulkan-intel, xf86-video-intel)"
+echo "  [3] NVIDIA (nvidia, nvidia-utils + DRM modeset flag)"
+echo "  [4] Virtual Machine / Generic (mesa)"
+read -p "Enter choice [1-4]: " GPU_CHOICE
+
+GPU_PKGS=""
+NVIDIA_PARAM=""
+case $GPU_CHOICE in
+1) GPU_PKGS="mesa vulkan-radeon xf86-video-amdgpu" ;;
+2) GPU_PKGS="mesa vulkan-intel xf86-video-intel" ;;
+3)
+  GPU_PKGS="nvidia nvidia-utils"
+  NVIDIA_PARAM="nvidia_drm.modeset=1"
+  ;;
+*) GPU_PKGS="mesa" ;;
+esac
+log_info "Selected GPU packages: $GPU_PKGS"
+
 print_header "Step 3: Disk & Partition Selection"
 lsblk -dno NAME,SIZE,MODEL | grep -v "loop"
 read -p "Enter target disk path [default: $TARGET_DISK]: " DISK_PATH
@@ -84,8 +105,8 @@ mkdir -p /mnt/boot/efi
 mount -t vfat "$EFI_PART" /mnt/boot/efi
 
 print_header "Step 5: Bootstrapping Base Arch System"
-# Swapped 'hyprland' out for 'niri' directly here to prep foundational packages
-pacstrap -K /mnt base base-devel linux linux-firmware networkmanager git zsh jq curl python btrfs-progs refind ly niri
+# Added GPU_PKGS variable to ensure correct graphics drivers are installed
+pacstrap -K /mnt base base-devel linux linux-firmware networkmanager git zsh jq curl python btrfs-progs refind ly niri $GPU_PKGS
 
 genfstab -U /mnt >>/mnt/etc/fstab
 cp packages.json /mnt/root/
@@ -118,8 +139,8 @@ fi
 
 TARGET_UUID=\$(blkid -s UUID -o value "$ROOT_PART")
 cat << EOF_REFIND > /boot/refind_linux.conf
-"Boot to Niri"      "root=UUID=\${TARGET_UUID} rw initrd=/boot/initramfs-linux.img"
-"Boot Fallback"     "root=UUID=\${TARGET_UUID} rw initrd=/boot/initramfs-linux-fallback.img"
+"Boot to Niri"      "root=UUID=\${TARGET_UUID} rw initrd=/boot/initramfs-linux.img $NVIDIA_PARAM"
+"Boot Fallback"     "root=UUID=\${TARGET_UUID} rw initrd=/boot/initramfs-linux-fallback.img $NVIDIA_PARAM"
 EOF_REFIND
 
 git clone https://github.com/CriticalPulsar/refind-efifetch /boot/efi/EFI/refind/themes/refind-efifetch
@@ -133,22 +154,14 @@ if [ -f "\$PACKAGES_FILE" ]; then
     sudo -u "$USERNAME" yay -S --needed --noconfirm \$ALL_PKGS
 fi
 
-# Set up the Python script directly
 mkdir -p "/home/$USERNAME/Foolish-Alteration"
-
-# Fixed: Added the -f flag to curl so it fails properly if a 404 occurs.
-# Added a fallback echo to write a valid Python script, avoiding SyntaxErrors.
 if ! curl -fsLo "/home/$USERNAME/Foolish-Alteration/Foolish_Alteration.py" "https://raw.githubusercontent.com/MichaelWard405/Foolish-Alteration/main/Foolish_Alteration.py"; then
     echo "print('ERROR: The online script failed to download. Please check your repository URL!')" > "/home/$USERNAME/Foolish-Alteration/Foolish_Alteration.py"
 fi
-
 chmod +x "/home/$USERNAME/Foolish-Alteration/Foolish_Alteration.py"
 chown -R "$USERNAME:$USERNAME" "/home/$USERNAME/Foolish-Alteration"
 
-# Create Niri's config directory
 mkdir -p "/home/$USERNAME/.config/niri"
-
-# Generate proper KDL-format layout file for Niri session
 cat << EOF_NIRI > "/home/$USERNAME/.config/niri/config.kdl"
 input {
     keyboard {
@@ -167,11 +180,9 @@ layout {
     }
 }
 
-// Compositor startup hooks (replaces Hyprland's exec-once)
 spawn-at-startup "waybar"
 spawn-at-startup "kitty" "--hold" "-e" "python3" "/home/$USERNAME/Foolish-Alteration/Foolish_Alteration.py"
 
-// Window bindings (replaces Hyprland's bind syntax)
 binds {
     Mod+Q { spawn "kitty"; }
     Mod+C { close-window; }
@@ -203,4 +214,4 @@ rm -f packages.json
 umount -R /mnt
 
 log_info "Installation Complete!"
-echo -e "${GREEN}You can now reboot. The system is configured to launch Niri via Ly on tty2, and your script will run safely!${NC}"
+echo -e "${GREEN}You can now reboot. GPU drivers and fonts are installed, and Niri should render perfectly.${NC}"
