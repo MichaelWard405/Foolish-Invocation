@@ -21,5 +21,6 @@
     "qt5ct",
     "python",
     "ttf-dejavu",
-    "ttf-nerd-fonts-symbols"
+    "ttf-nerd-fonts-symbols",
+    "network-manager-applet"
 ]
