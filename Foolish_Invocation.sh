@@ -213,10 +213,10 @@ cat << 'EOF_RIVER' > "/home/$USERNAME/.config/river/init"
 MOD="Logo"
 
 # System Controls & Standard Keybinds
-riverctl map normal $MOD Q close
-riverctl map normal $MOD E exit
-riverctl map normal $MOD Return spawn kitty
-riverctl map normal $MOD Space spawn "wofi --show drun"
+riverctl map normal \$MOD Q close
+riverctl map normal \$MOD E exit
+riverctl map normal \$MOD Return spawn kitty
+riverctl map normal \$MOD Space spawn "wofi --show drun"
 
 # Layout Engine Setup (Uses rivertile default)
 riverctl default-layout rivertile
