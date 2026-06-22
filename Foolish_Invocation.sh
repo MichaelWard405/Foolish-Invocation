@@ -189,7 +189,7 @@ fi
 
 TARGET_UUID=\$(blkid -s UUID -o value "$ROOT_PART")
 cat << EOF_REFIND > /boot/refind_linux.conf
-"Boot to Niri"      "root=UUID=\${TARGET_UUID} rw initrd=/boot/initramfs-linux.img $NVIDIA_PARAM"
+"Boot to RiverWM"  "root=UUID=\${TARGET_UUID} rw initrd=/boot/initramfs-linux.img $NVIDIA_PARAM"
 "Boot Fallback"     "root=UUID=\${TARGET_UUID} rw initrd=/boot/initramfs-linux-fallback.img $NVIDIA_PARAM"
 EOF_REFIND
 
@@ -204,29 +204,35 @@ fi
 chmod +x "/home/$USERNAME/Foolish-Alteration/Foolish_Alteration.py"
 chown -R "$USERNAME:$USERNAME" "/home/$USERNAME/Foolish-Alteration"
 
-# NIRI Configuration
-mkdir -p "/home/$USERNAME/.config/niri"
-cat << EOF_NIRI > "/home/$USERNAME/.config/niri/config.kdl"
-input {
-    keyboard {
-        xkb {
-            layout "us"
-        }
-    }
-}
-layout {
-    gaps 5
-    border {
-        width 2
-        active-color "#33ccff"
-        inactive-color "#595959"
-    }
-}
-spawn-at-startup "waybar"
-spawn-at-startup "nm-applet" "--indicator"
-spawn-at-startup "kitty" "--hold" "-e" "python3" "/home/$USERNAME/Foolish-Alteration/Foolish_Alteration.py"
-binds {}
-EOF_NIRI
+# RiverWM Configuration Setup
+mkdir -p "/home/$USERNAME/.config/river"
+cat << 'EOF_RIVER' > "/home/$USERNAME/.config/river/init"
+#!/bin/sh
+
+# Base modifier mapping (Super/Windows key)
+MOD="Logo"
+
+# System Controls & Standard Keybinds
+riverctl map normal $MOD Q close
+riverctl map normal $MOD E exit
+riverctl map normal $MOD Return spawn kitty
+riverctl map normal $MOD Space spawn "wofi --show drun"
+
+# Layout Engine Setup (Uses rivertile default)
+riverctl default-layout rivertile
+riverctl spawn rivertile &
+
+# Startup Utilities
+waybar &
+nm-applet --indicator &
+
+# App Launching Strategy (1 second pause for stable layout mapping)
+sleep 1 && kitty --hold -e python3 /home/FOOL/Foolish-Alteration/Foolish_Alteration.py &
+EOF_RIVER
+
+# Dynamic replacement of the hardcoded username placeholder inside the River config
+sed -i "s/FOOL/$USERNAME/g" "/home/$USERNAME/.config/river/init"
+chmod +x "/home/$USERNAME/.config/river/init"
 chown -R "$USERNAME:$USERNAME" "/home/$USERNAME/.config"
 
 # NetworkManager Profiles
@@ -282,4 +288,4 @@ print_header "Step 7: Finalizing & Unmounting"
 rm -f packages.json
 umount -R /mnt
 log_info "Install [Completed]"
-echo -e "${GREEN} You Can Now 'Reboot' into your Operating System ${NC}"
+echo -e "${GREEN} You Can Now 'Reboot' into your RiverWM Operating System ${NC}"
