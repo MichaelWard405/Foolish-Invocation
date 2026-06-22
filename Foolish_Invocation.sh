@@ -9,11 +9,13 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
+
 print_header() {
   echo -e "\n${BLUE}================================================${NC}"
   echo -e "${GREEN} $1 ${NC}"
   echo -e "${BLUE}================================================${NC}"
 }
+
 log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() {
@@ -35,6 +37,7 @@ NVIDIA_PARAM=""
 print_header "Step 1: System Credentials"
 read -p "Enter Desired Username [default: FOOL]: " INPUT_USER
 USERNAME="${INPUT_USER:-FOOL}"
+
 while true; do
   read -s -p "Enter Password For $USERNAME and root: " USER_PASSWORD
   echo ""
@@ -47,6 +50,7 @@ while true; do
     echo -e "${RED}Password [FAILED]: Fields are empty or do not match. ${NC}"
   fi
 done
+
 echo ""
 log_info "Wireless Setup (Optional)"
 read -p "Enter Wi-Fi Name (SSID) [Leave blank to skip]: " WIFI_SSID
@@ -70,7 +74,7 @@ if [ ! -f "packages.json" ] || ! jq . "packages.json" >/dev/null 2>&1; then
 fi
 
 #==============================
-#  Step 2.1: Driver Selection
+#  Step 2.1: Graphic Driver Selection
 #==============================
 print_header "Step 2.1: Graphic Driver Selection"
 echo "Select Your GPU Drivers:"
@@ -97,18 +101,22 @@ print_header "Step 3: Disk & Partition Selection"
 lsblk -dno NAME,SIZE,MODEL | grep -v "loop"
 read -p "Enter Target Disk Path [Default: $TARGET_DISK]: " DISK_PATH
 TARGET_DISK="${DISK_PATH:-$TARGET_DISK}"
+
 mapfile -t PART_PATHS < <(lsblk -rno NAME,TYPE "$TARGET_DISK" | awk '$2=="part" {print "/dev/"$1}')
 if [ ${#PART_PATHS[@]} -eq 0 ]; then
   log_error "No Partitions Found On $TARGET_DISK"
 fi
+
 for i in "${!PART_PATHS[@]}"; do
   PART_INFO=$(lsblk -dno SIZE,FSTYPE,LABEL "${PART_PATHS[$i]}" | tr -s ' ')
   echo "  [$((i + 1))] ${PART_PATHS[$i]} -> ($PART_INFO)"
 done
+
 read -p "Select ROOT Partition [BTRFS]: " ROOT_IDX
 ROOT_PART="${PART_PATHS[$((ROOT_IDX - 1))]}"
 read -p "Select EFI Partition [FAT32]: " EFI_IDX
 EFI_PART="${PART_PATHS[$((EFI_IDX - 1))]}"
+
 if [ "$ROOT_PART" == "$EFI_PART" ]; then
   log_error "Root & EFI Partitions Cannot Be The Same Device"
 fi
@@ -129,8 +137,7 @@ mount -t vfat "$EFI_PART" /mnt/boot/efi
 #  Step 5: Bootstrapping Base Arch System
 #==========================================
 print_header "Step 5: Bootstrapping Base Arch System"
-# Note: Added wpa_supplicant directly here to ensure Wi-Fi backend is present
-pacstrap -K /mnt base base-devel linux linux-firmware networkmanager wpa_supplicant git zsh jq curl python btrfs-progs refind ly niri $GPU_PKGS
+pacstrap -K /mnt base base-devel linux linux-firmware btrfs-progs git jq curl $GPU_PKGS
 genfstab -U /mnt >>/mnt/etc/fstab
 cp packages.json /mnt/root/
 echo "$USERNAME:$USER_PASSWORD" >/mnt/root/credentials.txt
@@ -143,43 +150,61 @@ chmod 600 /mnt/root/credentials.txt
 print_header "Step 6: Chroot Environment Configuration"
 arch-chroot /mnt /bin/bash <<EOF
 set -e
+
+# Localization
 ln -sf /usr/share/zoneinfo/Australia/Brisbane /etc/localtime
 hwclock --systohc
 sed -i 's/#en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen
 locale-gen
 echo "LANG=en_US.UTF-8" > /etc/locale.conf
 echo "Foolish" > /etc/hostname
-useradd -m -G wheel -s /bin/zsh "$USERNAME"
+
+# Temporary User Creation (Bash used until ZSH is installed via yay)
+useradd -m -G wheel -s /bin/bash "$USERNAME"
 chpasswd < /root/credentials.txt
 rm /root/credentials.txt
 echo "%wheel ALL=(ALL:ALL) NOPASSWD: ALL" >> /etc/sudoers
-touch "/home/$USERNAME/.zshrc"
-chown "$USERNAME:$USERNAME" "/home/$USERNAME/.zshrc"
-refind-install
-mkdir -p /boot/efi/EFI/refind/drivers_x64
-if [ -f /usr/share/refind/drivers_x64/btrfs_x64.efi ]; then
-    cp /usr/share/refind/drivers_x64/btrfs_x64.efi /boot/efi/EFI/refind/drivers_x64/
-fi
-TARGET_UUID=\$(blkid -s UUID -o value "$ROOT_PART")
-cat << EOF_REFIND > /boot/refind_linux.conf
-"Boot to Niri"      "root=UUID=\${TARGET_UUID} rw initrd=/boot/initramfs-linux.img $NVIDIA_PARAM"
-"Boot Fallback"     "root=UUID=\${TARGET_UUID} rw initrd=/boot/initramfs-linux-fallback.img $NVIDIA_PARAM"
-EOF_REFIND
-git clone https://github.com/CriticalPulsar/refind-efifetch /boot/efi/EFI/refind/themes/refind-efifetch
-echo "include themes/refind-efifetch/theme.conf" >> /boot/efi/EFI/refind/refind.conf
+
+# Setup Yay
 sudo -u "$USERNAME" bash -c "cd ~ && git clone https://aur.archlinux.org/yay-bin.git && cd yay-bin && makepkg -si --noconfirm"
+
+# Install Packages from packages.json
 PACKAGES_FILE="/root/packages.json"
 if [ -f "\$PACKAGES_FILE" ]; then
     ALL_PKGS=\$(jq -r '.[]' "\$PACKAGES_FILE" | tr '\n' ' ')
     sudo -u "$USERNAME" yay -S --needed --noconfirm \$ALL_PKGS
 fi
+
+# Change shell to ZSH now that it is installed
+chsh -s /usr/bin/zsh "$USERNAME"
+touch "/home/$USERNAME/.zshrc"
+chown "$USERNAME:$USERNAME" "/home/$USERNAME/.zshrc"
+
+# Bootloader Config (rEFInd)
+refind-install
+mkdir -p /boot/efi/EFI/refind/drivers_x64
+if [ -f /usr/share/refind/drivers_x64/btrfs_x64.efi ]; then
+    cp /usr/share/refind/drivers_x64/btrfs_x64.efi /boot/efi/EFI/refind/drivers_x64/
+fi
+
+TARGET_UUID=\$(blkid -s UUID -o value "$ROOT_PART")
+cat << EOF_REFIND > /boot/refind_linux.conf
+"Boot to Niri"      "root=UUID=\${TARGET_UUID} rw initrd=/boot/initramfs-linux.img $NVIDIA_PARAM"
+"Boot Fallback"     "root=UUID=\${TARGET_UUID} rw initrd=/boot/initramfs-linux-fallback.img $NVIDIA_PARAM"
+EOF_REFIND
+
+git clone https://github.com/CriticalPulsar/refind-efifetch /boot/efi/EFI/refind/themes/refind-efifetch
+echo "include themes/refind-efifetch/theme.conf" >> /boot/efi/EFI/refind/refind.conf
+
+# Python Script Deployment
 mkdir -p "/home/$USERNAME/Foolish-Alteration"
 if ! curl -fsLo "/home/$USERNAME/Foolish-Alteration/Foolish_Alteration.py" "https://raw.githubusercontent.com/MichaelWard405/Foolish-Alteration/master/Foolish_Alteration.py"; then
     echo "print('ERROR: The online script failed to download. Please check your repository URL or Branch Name!')" > "/home/$USERNAME/Foolish-Alteration/Foolish_Alteration.py"
 fi
 chmod +x "/home/$USERNAME/Foolish-Alteration/Foolish_Alteration.py"
 chown -R "$USERNAME:$USERNAME" "/home/$USERNAME/Foolish-Alteration"
-#[NIRI Config]
+
+# NIRI Configuration
 mkdir -p "/home/$USERNAME/.config/niri"
 cat << EOF_NIRI > "/home/$USERNAME/.config/niri/config.kdl"
 input {
@@ -204,7 +229,7 @@ binds {}
 EOF_NIRI
 chown -R "$USERNAME:$USERNAME" "/home/$USERNAME/.config"
 
-#[NetworkManager Profiles]
+# NetworkManager Profiles
 mkdir -p /etc/NetworkManager/system-connections
 cat << EOF_NM > /etc/NetworkManager/system-connections/Wired-Fallback.nmconnection
 [connection]
@@ -218,7 +243,6 @@ method=auto
 EOF_NM
 chmod 600 /etc/NetworkManager/system-connections/Wired-Fallback.nmconnection
 
-#[Network]
 if [ -n "$WIFI_SSID" ]; then
 cat << EOF_WIFI > /etc/NetworkManager/system-connections/${WIFI_SSID}.nmconnection
 [connection]
@@ -240,11 +264,11 @@ method=auto
 
 [ipv6]
 method=auto
-
 EOF_WIFI
 chmod 600 /etc/NetworkManager/system-connections/${WIFI_SSID}.nmconnection
 fi
-#[SystemCTL Hooks]
+
+# SystemCTL Services
 systemctl daemon-reload
 systemctl enable NetworkManager
 systemctl enable ly@tty2.service
