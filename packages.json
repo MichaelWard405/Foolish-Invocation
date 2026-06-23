@@ -6,13 +6,10 @@
     "python",
     "tk",
     "xorg-xwayland",
+    "xwayland-satellite",
     "refind",
     "ly",
-    "river",
-    "wayland-protocols",
-    "gcc",
-    "make",
-    "pkgconf",
+    "niri",
     "waybar",
     "kitty",
     "wofi",
@@ -27,6 +24,5 @@
     "tumbler",
     "qt5ct",
     "ttf-dejavu",
-    "ttf-nerd-fonts-symbols",
-    "git"
+    "ttf-nerd-fonts-symbols"
 ]
