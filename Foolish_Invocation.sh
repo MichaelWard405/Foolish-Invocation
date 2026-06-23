@@ -204,11 +204,12 @@ fi
 chmod +x "/home/$USERNAME/Foolish-Alteration/Foolish_Alteration.py"
 chown -R "$USERNAME:$USERNAME" "/home/$USERNAME/Foolish-Alteration"
 
-# Ensure build dependencies for WideRiver are present
+# Ensure compilation toolchains are explicitly active
 pacman -S --noconfirm gcc make pkgconf wayland-protocols
 
-# Compile and Install WideRiver
-echo "Compiling WideRiver from source..."
+# Compile and Install WideRiver as a Non-Monolithic Standalone WM Extension
+echo "Compiling WideRiver Layout Engine..."
+rm -rf /tmp/wideriver_build
 git clone https://github.com/alex-courtis/wideriver.git /tmp/wideriver_build
 cd /tmp/wideriver_build
 make
@@ -236,7 +237,7 @@ riverctl map normal \$MOD K focus-view previous
 riverctl map normal \$MOD+Shift J swap next
 riverctl map normal \$MOD+Shift K swap previous
 
-# WideRiver Tiling Modifiers
+# WideRiver 0.4.0+ Window Layout Controls
 riverctl map normal \$MOD H send-layout-cmd wideriver "--ratio -0.05"
 riverctl map normal \$MOD L send-layout-cmd wideriver "--ratio +0.05"
 riverctl map normal \$MOD F send-layout-cmd wideriver "--layout monocle"
@@ -245,19 +246,22 @@ riverctl map normal \$MOD Up send-layout-cmd wideriver "--layout left"
 # Regional Settings
 riverctl keyboard-layout us
 
-# Layout Engine Setup (Uses wideriver dwindle)
-riverctl default-layout wideriver
-riverctl spawn "wideriver --layout left --stack dwindle --ratio 0.5 --inner-gaps 6 --outer-gaps 12"
-
 # Startup Utilities
 waybar &
 nm-applet --indicator &
 
+# --- WIDERIVER NON-MONOLITHIC HOOK ---
+# Core Fix: 'riverctl default-layout' is completely removed to fix the error. 
+# Spawning the binary directly registers WideRiver to the new Wayland protocol.
+riverctl spawn "wideriver --layout left --stack dwindle --ratio 0.5 --inner-gaps 6 --outer-gaps 12" &
+
 # App Launching Strategy
-riverctl map normal \$MOD P spawn "kitty --hold -e python3 /home/$USERNAME/Foolish-Alteration/Foolish_Alteration.py"
-sleep 1 && kitty --hold -e python3 /home/$USERNAME/Foolish-Alteration/Foolish_Alteration.py &
+riverctl map normal \$MOD P spawn "kitty --hold -e python3 /home/FOOL/Foolish-Alteration/Foolish_Alteration.py"
+sleep 1 && kitty --hold -e python3 /home/FOOL/Foolish-Alteration/Foolish_Alteration.py &
 EOF_RIVER
 
+# Dynamic replacement of the hardcoded username placeholder inside the River config
+sed -i "s/FOOL/$USERNAME/g" "/home/$USERNAME/.config/river/init"
 chmod +x "/home/$USERNAME/.config/river/init"
 chown -R "$USERNAME:$USERNAME" "/home/$USERNAME/.config"
 
