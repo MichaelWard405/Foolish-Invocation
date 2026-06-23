@@ -204,6 +204,18 @@ fi
 chmod +x "/home/$USERNAME/Foolish-Alteration/Foolish_Alteration.py"
 chown -R "$USERNAME:$USERNAME" "/home/$USERNAME/Foolish-Alteration"
 
+# Ensure build dependencies for WideRiver are present
+pacman -S --noconfirm gcc make pkgconf wayland-protocols
+
+# Compile and Install WideRiver
+echo "Compiling WideRiver from source..."
+git clone https://github.com/alex-courtis/wideriver.git /tmp/wideriver_build
+cd /tmp/wideriver_build
+make
+make install
+cd /
+rm -rf /tmp/wideriver_build
+
 # RiverWM Configuration Setup
 mkdir -p "/home/$USERNAME/.config/river"
 cat << 'EOF_RIVER' > "/home/$USERNAME/.config/river/init"
@@ -213,20 +225,36 @@ cat << 'EOF_RIVER' > "/home/$USERNAME/.config/river/init"
 MOD="Logo"
 
 # System Controls & Standard Keybinds
-riverctl map normal \$MOD Q close
-riverctl map normal \$MOD E exit
-riverctl map normal \$MOD Return spawn kitty
-riverctl map normal \$MOD Space spawn "wofi --show drun"
+riverctl map normal $MOD Q close
+riverctl map normal $MOD E exit
+riverctl map normal $MOD Return spawn kitty
+riverctl map normal $MOD Space spawn "wofi --show drun"
 
-# Layout Engine Setup (Uses rivertile default)
-riverctl default-layout rivertile
-riverctl spawn rivertile &
+# Navigation/Focus Management
+riverctl map normal $MOD J focus-view next
+riverctl map normal $MOD K focus-view previous
+riverctl map normal $MOD+Shift J swap next
+riverctl map normal $MOD+Shift K swap previous
+
+# WideRiver Tiling Modifiers
+riverctl map normal $MOD H send-layout-cmd wideriver "--ratio -0.05"
+riverctl map normal $MOD L send-layout-cmd wideriver "--ratio +0.05"
+riverctl map normal $MOD F send-layout-cmd wideriver "--layout monocle"
+riverctl map normal $MOD Up send-layout-cmd wideriver "--layout left"
+
+# Regional Settings
+riverctl keyboard-layout us
+
+# Layout Engine Setup (Uses wideriver dwindle)
+riverctl default-layout wideriver
+riverctl spawn "wideriver --layout left --stack dwindle --ratio 0.5 --inner-gaps 6 --outer-gaps 12"
 
 # Startup Utilities
 waybar &
 nm-applet --indicator &
 
 # App Launching Strategy (1 second pause for stable layout mapping)
+riverctl map normal $MOD P spawn "kitty --hold -e python3 /home/FOOL/Foolish-Alteration/Foolish_Alteration.py"
 sleep 1 && kitty --hold -e python3 /home/FOOL/Foolish-Alteration/Foolish_Alteration.py &
 EOF_RIVER
 

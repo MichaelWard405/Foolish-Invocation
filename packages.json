@@ -9,6 +9,10 @@
     "refind",
     "ly",
     "river",
+    "wayland-protocols",
+    "gcc",
+    "make",
+    "pkgconf",
     "waybar",
     "kitty",
     "wofi",
@@ -23,5 +27,6 @@
     "tumbler",
     "qt5ct",
     "ttf-dejavu",
-    "ttf-nerd-fonts-symbols"
+    "ttf-nerd-fonts-symbols",
+    "git"
 ]
