@@ -189,7 +189,7 @@ fi
 
 TARGET_UUID=\$(blkid -s UUID -o value "$ROOT_PART")
 cat << EOF_REFIND > /boot/refind_linux.conf
-"Boot to Niri"      "root=UUID=\${TARGET_UUID} rw initrd=/boot/initramfs-linux.img $NVIDIA_PARAM"
+"Boot to SwayFX"    "root=UUID=\${TARGET_UUID} rw initrd=/boot/initramfs-linux.img $NVIDIA_PARAM"
 "Boot Fallback"     "root=UUID=\${TARGET_UUID} rw initrd=/boot/initramfs-linux-fallback.img $NVIDIA_PARAM"
 EOF_REFIND
 
@@ -204,30 +204,82 @@ fi
 chmod +x "/home/$USERNAME/Foolish-Alteration/Foolish_Alteration.py"
 chown -R "$USERNAME:$USERNAME" "/home/$USERNAME/Foolish-Alteration"
 
-# NIRI Configuration
-mkdir -p "/home/$USERNAME/.config/niri"
-cat << EOF_NIRI > "/home/$USERNAME/.config/niri/config.kdl"
-input {
-    keyboard {
-        xkb {
-            layout "us"
-        }
-    }
+# SWAYFX Configuration Setup
+mkdir -p "/home/$USERNAME/.config/sway"
+cat << 'EOF_SWAY' > "/home/$USERNAME/.config/sway/config"
+# ==================================================
+#  SwayFX Global Visuals & Eye-Candy Configuration
+# ==================================================
+blur enable
+blur_passes 3
+blur_radius 5
+corner_radius 10
+shadows enable
+shadow_blur_radius 15
+shadow_color #0000007F
+
+# Window decorations & Borders
+default_border pixel 2
+default_floating_border pixel 2
+client.focused          #33ccff #33ccff #ffffff #33ccff #33ccff
+client.focused_inactive #595959 #595959 #ffffff #595959 #595959
+client.unfocused        #595959 #595959 #ffffff #595959 #595959
+
+# Core Modifiers and Environment Elements
+set $mod Mod4
+set $left h
+set $down j
+set $up k
+set $right l
+set $term kitty
+set $menu wofi --show drun
+
+# Core Interactive System Keybinds
+bindsym $mod+Return exec $term
+bindsym $mod+q kill
+bindsym $mod+Space exec $menu
+bindsym $mod+Shift+e exec wlogout
+
+# Interactive Focus/Navigation Hooks
+bindsym $mod+$left focus left
+bindsym $mod+$down focus down
+bindsym $mod+$up focus up
+bindsym $mod+$right focus right
+
+# Layout Containers adjustments
+bindsym $mod+Shift+$left move left
+bindsym $mod+Shift+$down move down
+bindsym $mod+Shift+$up move up
+bindsym $mod+Shift+$right move right
+
+# Desktop Management Workspaces
+bindsym $mod+1 workspace number 1
+bindsym $mod+2 workspace number 2
+bindsym $mod+3 workspace number 3
+bindsym $mod+4 workspace number 4
+bindsym $mod+5 workspace number 5
+
+bindsym $mod+Shift+1 move container to workspace number 1
+bindsym $mod+Shift+2 move container to workspace number 2
+bindsym $mod+Shift+3 move container to workspace number 3
+bindsym $mod+Shift+4 move container to workspace number 4
+bindsym $mod+Shift+5 move container to workspace number 5
+
+# Local Input Strategy
+input * {
+    xkb_layout "us"
 }
-layout {
-    gaps 5
-    border {
-        width 2
-        active-color "#33ccff"
-        inactive-color "#595959"
-    }
-}
-spawn-at-startup "waybar"
-spawn-at-startup "nm-applet" "--indicator"
-spawn-at-startup "xwayland-satellite"
-spawn-at-startup "sh" "-c" "sleep 2 && kitty --hold -e python3 /home/$USERNAME/Foolish-Alteration/Foolish_Alteration.py"
-binds {}
-EOF_NIRI
+
+# Session Environment Daemon Initialization
+exec waybar
+exec nm-applet --indicator
+
+# Dynamic Application Execution Context Fix (Corrects Tkinter file path lookup)
+exec sh -c "sleep 2 && kitty --hold -e bash -c 'cd /home/FOOL/Foolish-Alteration/ && python3 Foolish_Alteration.py'"
+EOF_SWAY
+
+# Dynamic replacement of the hardcoded username placeholder inside the Sway config
+sed -i "s/FOOL/$USERNAME/g" "/home/$USERNAME/.config/sway/config"
 chown -R "$USERNAME:$USERNAME" "/home/$USERNAME/.config"
 
 # NetworkManager Profiles
@@ -283,4 +335,4 @@ print_header "Step 7: Finalizing & Unmounting"
 rm -f packages.json
 umount -R /mnt
 log_info "Install [Completed]"
-echo -e "${GREEN} You Can Now 'Reboot' into your Operating System ${NC}"
+echo -e "${GREEN} You Can Now 'Reboot' into your SwayFX Operating System ${NC}"
