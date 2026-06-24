@@ -87,7 +87,7 @@ case $GPU_CHOICE in
 1) GPU_PKGS="mesa vulkan-radeon xf86-video-amdgpu" ;;
 2) GPU_PKGS="mesa vulkan-intel xf86-video-intel" ;;
 3)
-  GPU_PKGS="nvidia nvidia-utils"
+  GPU_PKGS="nvidia-dkms nvidia-utils"
   NVIDIA_PARAM="nvidia_drm.modeset=1"
   ;;
 *) GPU_PKGS="mesa" ;;
