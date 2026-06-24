@@ -225,32 +225,47 @@ client.focused          #33ccff #33ccff #ffffff #33ccff #33ccff
 client.focused_inactive #595959 #595959 #ffffff #595959 #595959
 client.unfocused        #595959 #595959 #ffffff #595959 #595959
 
-# Core Modifiers and Environment Elements
+# ==================================================
+#  Custom Variable Layout & Hyprland Mapping Match
+# ==================================================
 set \$mod Mod4
-set \$left h
-set \$down j
-set \$up k
-set \$right l
-set \$term kitty
+set \$terminal kitty
+set \$fileManager thunar
 set \$menu wofi --show drun
+set \$browser flatpak run app.zen_browser.zen
+set \$steam flatpak run com.valvesoftware.Steam
+set \$discord discord
+set \$Screenshot grim -g "\$(slurp)" - | wl-copy
+set \$logout wlogout
+set \$Ide nvim
+set \$git lazygit
 
-# Core Interactive System Keybinds
-bindsym \$mod+Return exec \$term
-bindsym \$mod+q kill
-bindsym \$mod+Space exec \$menu
-bindsym \$mod+Shift+e exec wlogout
+# Core Interactive System Execution Hooks
+bindsym \$mod+q exec \$terminal
+bindsym \$mod+c kill
+bindsym \$mod+m exec swaymsg exit
+bindsym \$mod+e exec \$fileManager
+bindsym \$mod+f floating toggle
+bindsym \$mod+r exec \$menu
+bindsym \$mod+b exec \$browser
+bindsym \$mod+s exec \$steam
+bindsym \$mod+d exec \$discord
+bindsym \$mod+Print exec \$Screenshot
+bindsym \$mod+w exec \$logout
+bindsym \$mod+v exec \$terminal -e \$Ide
+bindsym \$mod+g exec \$terminal -e \$git
 
-# Interactive Focus/Navigation Hooks
-bindsym \$mod+\$left focus left
-bindsym \$mod+\$down focus down
-bindsym \$mod+\$up focus up
-bindsym \$mod+\$right focus right
+# Focus / Window Target Tracking Management
+bindsym \$mod+Left focus left
+bindsym \$mod+Right focus right
+bindsym \$mod+Up focus up
+bindsym \$mod+Down focus down
 
-# Layout Containers adjustments
-bindsym \$mod+Shift+\$left move left
-bindsym \$mod+Shift+\$down move down
-bindsym \$mod+Shift+\$up move up
-bindsym \$mod+Shift+\$right move right
+# Moving Tiling Containers Configuration 
+bindsym \$mod+Shift+Left move left
+bindsym \$mod+Shift+Right move right
+bindsym \$mod+Shift+Up move up
+bindsym \$mod+Shift+Down move down
 
 # Desktop Management Workspaces
 bindsym \$mod+1 workspace number 1
@@ -335,4 +350,4 @@ print_header "Step 7: Finalizing & Unmounting"
 rm -f packages.json
 umount -R /mnt
 log_info "Install [Completed]"
-echo -e "${GREEN} You Can Now 'Reboot' into your SwayFX Operating System ${NC}"
+echo -e "${GREEN} You Can Now 'Reboot' into your custom SwayFX environment ${NC}"

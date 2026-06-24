@@ -24,5 +24,9 @@
     "qt5ct",
     "ttf-dejavu",
     "ttf-nerd-fonts-symbols",
-    "flatpak"
+    "flatpak",
+    "neovim",
+    "lazygit",
+    "ripgrep",
+    "fd"
 ]
