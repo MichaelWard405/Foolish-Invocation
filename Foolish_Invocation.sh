@@ -226,44 +226,44 @@ client.focused_inactive #595959 #595959 #ffffff #595959 #595959
 client.unfocused        #595959 #595959 #ffffff #595959 #595959
 
 # Core Modifiers and Environment Elements
-set $mod Mod4
-set $left h
-set $down j
-set $up k
-set $right l
-set $term kitty
-set $menu wofi --show drun
+set \$mod Mod4
+set \$left h
+set \$down j
+set \$up k
+set \$right l
+set \$term kitty
+set \$menu wofi --show drun
 
 # Core Interactive System Keybinds
-bindsym $mod+Return exec $term
-bindsym $mod+q kill
-bindsym $mod+Space exec $menu
-bindsym $mod+Shift+e exec wlogout
+bindsym \$mod+Return exec \$term
+bindsym \$mod+q kill
+bindsym \$mod+Space exec \$menu
+bindsym \$mod+Shift+e exec wlogout
 
 # Interactive Focus/Navigation Hooks
-bindsym $mod+$left focus left
-bindsym $mod+$down focus down
-bindsym $mod+$up focus up
-bindsym $mod+$right focus right
+bindsym \$mod+\$left focus left
+bindsym \$mod+\$down focus down
+bindsym \$mod+\$up focus up
+bindsym \$mod+\$right focus right
 
 # Layout Containers adjustments
-bindsym $mod+Shift+$left move left
-bindsym $mod+Shift+$down move down
-bindsym $mod+Shift+$up move up
-bindsym $mod+Shift+$right move right
+bindsym \$mod+Shift+\$left move left
+bindsym \$mod+Shift+\$down move down
+bindsym \$mod+Shift+\$up move up
+bindsym \$mod+Shift+\$right move right
 
 # Desktop Management Workspaces
-bindsym $mod+1 workspace number 1
-bindsym $mod+2 workspace number 2
-bindsym $mod+3 workspace number 3
-bindsym $mod+4 workspace number 4
-bindsym $mod+5 workspace number 5
+bindsym \$mod+1 workspace number 1
+bindsym \$mod+2 workspace number 2
+bindsym \$mod+3 workspace number 3
+bindsym \$mod+4 workspace number 4
+bindsym \$mod+5 workspace number 5
 
-bindsym $mod+Shift+1 move container to workspace number 1
-bindsym $mod+Shift+2 move container to workspace number 2
-bindsym $mod+Shift+3 move container to workspace number 3
-bindsym $mod+Shift+4 move container to workspace number 4
-bindsym $mod+Shift+5 move container to workspace number 5
+bindsym \$mod+Shift+1 move container to workspace number 1
+bindsym \$mod+Shift+2 move container to workspace number 2
+bindsym \$mod+Shift+3 move container to workspace number 3
+bindsym \$mod+Shift+4 move container to workspace number 4
+bindsym \$mod+Shift+5 move container to workspace number 5
 
 # Local Input Strategy
 input * {
