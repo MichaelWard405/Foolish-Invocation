@@ -196,7 +196,6 @@ EOF_REFIND
 git clone https://github.com/CriticalPulsar/refind-efifetch /boot/efi/EFI/refind/themes/refind-efifetch
 echo "include themes/refind-efifetch/theme.conf" >> /boot/efi/EFI/refind/refind.conf
 
-# Python Script Deployment
 mkdir -p "/home/$USERNAME/Foolish-Alteration"
 if ! curl -fsLo "/home/$USERNAME/Foolish-Alteration/Foolish_Alteration.py" "https://raw.githubusercontent.com/MichaelWard405/Foolish-Alteration/master/Foolish_Alteration.py"; then
     echo "print('ERROR: The online script failed to download. Please check your repository URL or Branch Name!')" > "/home/$USERNAME/Foolish-Alteration/Foolish_Alteration.py"
@@ -204,7 +203,6 @@ fi
 chmod +x "/home/$USERNAME/Foolish-Alteration/Foolish_Alteration.py"
 chown -R "$USERNAME:$USERNAME" "/home/$USERNAME/Foolish-Alteration"
 
-# SWAYFX Configuration Setup
 mkdir -p "/home/$USERNAME/.config/sway"
 cat << 'EOF_SWAY' > "/home/$USERNAME/.config/sway/config"
 # ==================================================
@@ -288,16 +286,12 @@ input * {
 # Session Environment Daemon Initialization
 exec waybar
 exec nm-applet --indicator
-
-# Dynamic Application Execution Context Fix (Corrects Tkinter file path lookup)
 exec sh -c "sleep 2 && kitty --hold -e bash -c 'cd /home/FOOL/Foolish-Alteration/ && python3 Foolish_Alteration.py'"
 EOF_SWAY
 
-# Dynamic replacement of the hardcoded username placeholder inside the Sway config
 sed -i "s/FOOL/$USERNAME/g" "/home/$USERNAME/.config/sway/config"
 chown -R "$USERNAME:$USERNAME" "/home/$USERNAME/.config"
 
-# NetworkManager Profiles
 mkdir -p /etc/NetworkManager/system-connections
 cat << EOF_NM > /etc/NetworkManager/system-connections/Wired-Fallback.nmconnection
 [connection]
@@ -336,7 +330,6 @@ EOF_WIFI
 chmod 600 /etc/NetworkManager/system-connections/${WIFI_SSID}.nmconnection
 fi
 
-# SystemCTL Services
 systemctl daemon-reload
 systemctl enable NetworkManager
 systemctl enable ly@tty2.service
