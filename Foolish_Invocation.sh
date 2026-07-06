@@ -212,8 +212,8 @@ fi
 
 TARGET_UUID=\$(blkid -s UUID -o value "$ROOT_PART")
 cat << EOF_REFIND > /boot/refind_linux.conf
-"Boot to SwayFX"    "root=UUID=\${TARGET_UUID} rw rootflags=subvol=@ initrd=/boot/initramfs-linux.img $NVIDIA_PARAM"
-"Boot Fallback"     "root=UUID=\${TARGET_UUID} rw rootflags=subvol=@ initrd=/boot/initramfs-linux-fallback.img $NVIDIA_PARAM"
+"Boot to SwayFX"    "root=UUID=\${TARGET_UUID} rw rootflags=subvol=@ initrd=/@/boot/initramfs-linux.img $NVIDIA_PARAM"
+"Boot Fallback"     "root=UUID=\${TARGET_UUID} rw rootflags=subvol=@ initrd=/@/boot/initramfs-linux-fallback.img $NVIDIA_PARAM"
 EOF_REFIND
 
 git clone https://github.com/CriticalPulsar/refind-efifetch /boot/efi/EFI/refind/themes/refind-efifetch
