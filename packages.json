@@ -29,5 +29,7 @@
     "lazygit",
     "ripgrep",
     "fd",
-    "timeshift"
+    "timeshift",
+    "pipewire",
+    "wireplumber"
 ]
