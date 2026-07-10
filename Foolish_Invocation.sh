@@ -73,9 +73,9 @@ if [ ! -f "packages.json" ] || ! jq . "packages.json" >/dev/null 2>&1; then
   log_error "[FATAL] [ERROR]: Failed To Download Or Parse 'packages.json' From GitHub"
 fi
 
-#==============================
+#======================================
 #  Step 2.1: Graphic Driver Selection
-#==============================
+#======================================
 print_header "Step 2.1: Graphic Driver Selection"
 echo "Select Your GPU Drivers:"
 echo "  [1] AMD"
@@ -94,9 +94,9 @@ case $GPU_CHOICE in
 esac
 log_info "Selected GPU Packages: $GPU_PKGS"
 
-#======================
+#========================
 #  Step 3: Partitioning
-#======================
+#========================
 print_header "Step 3: Disk & Partition Selection"
 lsblk -dno NAME,SIZE,MODEL | grep -v "loop"
 read -p "Enter Target Disk Path [Default: $TARGET_DISK]: " DISK_PATH
@@ -122,17 +122,15 @@ if [ "$ROOT_PART" == "$EFI_PART" ]; then
 fi
 
 #=================================
-#  Step 4: Formatting & Mounting (BTRFS Ubuntu Subvolumes)
+#  Step 4: Formatting & Mounting
 #=================================
 print_header "Step 4: Formatting & Mounting (Timeshift Support)"
 umount -q -R /mnt 2>/dev/null || true
 umount -q "$EFI_PART" 2>/dev/null || true
 
-# Format the partitions
 mkfs.btrfs -f "$ROOT_PART"
 mkfs.fat -F 32 -n "BOOT" "$EFI_PART"
 
-# Create the BTRFS Subvolumes for Timeshift
 mount "$ROOT_PART" /mnt
 btrfs subvolume create /mnt/@
 btrfs subvolume create /mnt/@home
@@ -141,10 +139,8 @@ btrfs subvolume create /mnt/@pkg
 btrfs subvolume create /mnt/@snapshots
 umount /mnt
 
-# Define optimal BTRFS mount options
 BTRFS_OPTS="noatime,compress=zstd,space_cache=v2"
 
-# Mount subvolumes in their correct tree locations
 mount -o "$BTRFS_OPTS",subvol=@ "$ROOT_PART" /mnt
 mkdir -p /mnt/{home,var/log,var/cache/pacman/pkg,.snapshots,boot/efi}
 
@@ -153,13 +149,12 @@ mount -o "$BTRFS_OPTS",subvol=@log "$ROOT_PART" /mnt/var/log
 mount -o "$BTRFS_OPTS",subvol=@pkg "$ROOT_PART" /mnt/var/cache/pacman/pkg
 mount -o "$BTRFS_OPTS",subvol=@snapshots "$ROOT_PART" /mnt/.snapshots
 
-# Mount the EFI Boot partition
 mount -t vfat "$EFI_PART" /mnt/boot/efi
 
-#==========================================
-#  Step 5: Bootstrapping Base Arch System
-#==========================================
-print_header "Step 5: Bootstrapping Base Arch System"
+#==============================
+#  Step 5: Bootstrapping Base
+#==============================
+print_header "Step 5: Bootstrapping Base System"
 pacstrap -K /mnt base base-devel linux linux-firmware btrfs-progs git jq curl $GPU_PKGS
 genfstab -U /mnt >>/mnt/etc/fstab
 cp packages.json /mnt/root/
@@ -182,13 +177,13 @@ locale-gen
 echo "LANG=en_US.UTF-8" > /etc/locale.conf
 echo "Foolish" > /etc/hostname
 
-# Temporary User Creation (Bash used until ZSH is installed via yay)
+# Temporary User Creation
 useradd -m -G wheel -s /bin/bash "$USERNAME"
 chpasswd < /root/credentials.txt
 rm /root/credentials.txt
 echo "%wheel ALL=(ALL:ALL) NOPASSWD: ALL" >> /etc/sudoers
 
-# Setup Yay (Using shallow clone to prevent SSL network drops)
+# Setup
 sudo -u "$USERNAME" bash -c "cd ~ && git clone --depth=1 https://aur.archlinux.org/yay-bin.git && cd yay-bin && makepkg -si --noconfirm"
 
 # Install Packages from packages.json
@@ -198,12 +193,12 @@ if [ -f "\$PACKAGES_FILE" ]; then
     sudo -u "$USERNAME" yay -S --needed --noconfirm \$ALL_PKGS
 fi
 
-# Change shell to ZSH now that it is installed
+# Change shell to ZSH
 chsh -s /usr/bin/zsh "$USERNAME"
 touch "/home/$USERNAME/.zshrc"
 chown "$USERNAME:$USERNAME" "/home/$USERNAME/.zshrc"
 
-# Bootloader Config (rEFInd with BTRFS Subvolume Support)
+# Bootloader Config
 refind-install
 mkdir -p /boot/efi/EFI/refind/drivers_x64
 if [ -f /usr/share/refind/drivers_x64/btrfs_x64.efi ]; then
@@ -219,7 +214,6 @@ EOF_REFIND
 git clone https://github.com/CriticalPulsar/refind-efifetch /boot/efi/EFI/refind/themes/refind-efifetch
 echo "include themes/refind-efifetch/theme.conf" >> /boot/efi/EFI/refind/refind.conf
 
-# Python Script Deployment
 mkdir -p "/home/$USERNAME/Foolish-Alteration"
 if ! curl -fsLo "/home/$USERNAME/Foolish-Alteration/Foolish_Alteration.py" "https://raw.githubusercontent.com/MichaelWard405/Foolish-Alteration/master/Foolish_Alteration.py"; then
     echo "print('ERROR: The online script failed to download. Please check your repository URL or Branch Name!')" > "/home/$USERNAME/Foolish-Alteration/Foolish_Alteration.py"
@@ -227,12 +221,11 @@ fi
 chmod +x "/home/$USERNAME/Foolish-Alteration/Foolish_Alteration.py"
 chown -R "$USERNAME:$USERNAME" "/home/$USERNAME/Foolish-Alteration"
 
-# SWAYFX Configuration Setup
 mkdir -p "/home/$USERNAME/.config/sway"
 cat << 'EOF_SWAY' > "/home/$USERNAME/.config/sway/config"
-# ==================================================
-#  SwayFX Global Visuals & Eye-Candy Configuration
-# ==================================================
+# ===================
+#  SwayFX Temp  File
+# ===================
 blur enable
 blur_passes 3
 blur_radius 5
@@ -248,79 +241,19 @@ client.focused          #33ccff #33ccff #ffffff #33ccff #33ccff
 client.focused_inactive #595959 #595959 #ffffff #595959 #595959
 client.unfocused        #595959 #595959 #ffffff #595959 #595959
 
-# ==================================================
-#  Custom Variable Layout & Hyprland Mapping Match
-# ==================================================
-set \$mod Mod4
-set \$terminal kitty
-set \$fileManager thunar
-set \$menu wofi --show drun
-set \$browser flatpak run app.zen_browser.zen
-set \$steam flatpak run com.valvesoftware.Steam
-set \$discord discord
-set \$Screenshot grim -g "\$(slurp)" - | wl-copy
-set \$logout wlogout
-set \$Ide nvim
-set \$git lazygit
-
-# Core Interactive System Execution Hooks
-bindsym \$mod+q exec \$terminal
-bindsym \$mod+c kill
-bindsym \$mod+m exec swaymsg exit
-bindsym \$mod+e exec \$fileManager
-bindsym \$mod+f floating toggle
-bindsym \$mod+r exec \$menu
-bindsym \$mod+b exec \$browser
-bindsym \$mod+s exec \$steam
-bindsym \$mod+d exec \$discord
-bindsym \$mod+Print exec \$Screenshot
-bindsym \$mod+w exec \$logout
-bindsym \$mod+v exec \$terminal -e \$Ide
-bindsym \$mod+g exec \$terminal -e \$git
-
-# Focus / Window Target Tracking Management
-bindsym \$mod+Left focus left
-bindsym \$mod+Right focus right
-bindsym \$mod+Up focus up
-bindsym \$mod+Down focus down
-
-# Moving Tiling Containers Configuration 
-bindsym \$mod+Shift+Left move left
-bindsym \$mod+Shift+Right move right
-bindsym \$mod+Shift+Up move up
-bindsym \$mod+Shift+Down move down
-
-# Desktop Management Workspaces
-bindsym \$mod+1 workspace number 1
-bindsym \$mod+2 workspace number 2
-bindsym \$mod+3 workspace number 3
-bindsym \$mod+4 workspace number 4
-bindsym \$mod+5 workspace number 5
-
-bindsym \$mod+Shift+1 move container to workspace number 1
-bindsym \$mod+Shift+2 move container to workspace number 2
-bindsym \$mod+Shift+3 move container to workspace number 3
-bindsym \$mod+Shift+4 move container to workspace number 4
-bindsym \$mod+Shift+5 move container to workspace number 5
-
 # Local Input Strategy
 input * {
     xkb_layout "us"
 }
 
-# Session Environment Daemon Initialization
-exec waybar
-exec nm-applet --indicator
 
-# Dynamic Application Execution Context Fix (Corrects Tkinter file path lookup)
+# Dynamic Application Execution
 exec sh -c "sleep 2 && kitty --hold -e bash -c 'cd /home/FOOL/Foolish-Alteration/ && python3 Foolish_Alteration.py'"
 EOF_SWAY
 
-# Dynamic replacement of the hardcoded username placeholder inside the Sway config
 sed -i "s/FOOL/$USERNAME/g" "/home/$USERNAME/.config/sway/config"
 chown -R "$USERNAME:$USERNAME" "/home/$USERNAME/.config"
 
-# NetworkManager Profiles
 mkdir -p /etc/NetworkManager/system-connections
 cat << EOF_NM > /etc/NetworkManager/system-connections/Wired-Fallback.nmconnection
 [connection]
@@ -359,7 +292,6 @@ EOF_WIFI
 chmod 600 /etc/NetworkManager/system-connections/${WIFI_SSID}.nmconnection
 fi
 
-# SystemCTL Services
 systemctl daemon-reload
 systemctl enable NetworkManager
 systemctl enable ly@tty2.service
