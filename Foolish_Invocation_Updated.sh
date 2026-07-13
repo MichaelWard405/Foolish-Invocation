@@ -90,7 +90,7 @@ if [ -n "$WIFI_SSID" ]; then
 fi
 
 #==========================
-# Step 2 - Retrieval & GPU
+# Step 2 - Retrieval & GPU [4]
 #==========================
 print_header "Step 2: Retrieval"
 #[SYSTEM PACKAGE INSTALL] [A]
