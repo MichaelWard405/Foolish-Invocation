@@ -147,3 +147,34 @@ EFI_PART="${PART_PATHS[$((EFI_IDX - 1))]}"
 if [ "$ROOT_PART" == "$EFI_PART" ]; then
   log_error "Root & EFI Partitions Cannot Be The Same Device"
 fi
+
+#====================================
+# Step 4 - Formatting & Mounting [6]
+#====================================
+print_header "Step 4: Formatting & Mounting"
+#[UNMOUNT] [A]
+umount -q -R /mnt 2>/dev/null || true
+umount -q "$EFI_PART" 2/dev/null || true
+
+#[MAKE DIRECTORY] [B]
+mkfs.btrfs -f "ROOT_PART"
+mkfs.fat -F 32 -n "BOOT" "$EFI_PART"
+
+#[SUBVOLUME CREATION] [C]
+mount "$ROOT_PART" /mnt
+btrfs subvolume create /mnt/@
+btrfs subvolume create /mnt/@home
+btrfs subvolume create /mnt/@log
+btrfs subvolume create /mnt/@pkg
+btrfs subvolume create /mnt/@snapshots
+umount /mnt
+BTRFS_OPTS="noatime,compress=zstd,space_cache=v2"
+
+#[SUBVOLUME MOUNTING] [D]
+mount -o "BTRFS_OPTS",subvol=@ "ROOT_PART" /mnt
+mkdir -p /mnt/{home,var/log,var/cache/pacman/pkg,.snapshots,boot/efi}
+mount -o "$BTRFS_OPTS",subvol=@home "$ROOT_PART" /mnt/home
+mount -o "$BTRFS_OPTS",subvol=@log "$ROOT_PART" /mnt/var/log
+mount -o "$BTRFS_OPTS",subvol=@pkg "$ROOT_PART" /mnt/var/cache/pacman/pkg
+mount -o "$BTRFS_OPTS",subvol=@snapshots "$ROOT_PART" /mnt/.snapshots
+mount -t vfat "$EFI_PART" /mnt/boot/efi
