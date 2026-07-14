@@ -141,9 +141,9 @@ done
 
 #[PARTITION DESIGNATION] [C]
 read -p "Select ROOT Partition [BTRFS]: " ROOT_IDX
-ROOT_PART="${PART_PATHS[$((ROOT_IDX - 1))]}"
+ROOT_PART="${PART_PATH[$((ROOT_IDX - 1))]}"
 read -p "Select EFI Partition [FAT32]: " EFI_IDX
-EFI_PART="${PART_PATHS[$((EFI_IDX - 1))]}"
+EFI_PART="${PART_PATH[$((EFI_IDX - 1))]}"
 if [ "$ROOT_PART" == "$EFI_PART" ]; then
   log_error "Root & EFI Partitions Cannot Be The Same Device"
 fi
