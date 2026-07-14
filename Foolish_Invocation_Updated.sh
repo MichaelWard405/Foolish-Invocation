@@ -187,3 +187,131 @@ print_header "Step 5: Bootstrapping Base System"
 pacstrap -K /mnt base base-devel linux linux-firmware btrfs-progs git jq curl $GPU_PKGS
 genfstab -U /mnt >>/mnt/etc/fstab
 cp packages.json /mnt/root/
+
+#============================
+# Step 6 - Chroot Config [8]
+#============================
+print_header "Step 6: Chroot Config ENV"
+arch-chroot /mnt /bin/bash <<EOF
+set -e
+#[LOCALIZATION] [A]
+ln -sf /usr/share/zoneinfo/$TIMEZONE /etc/localtime
+hwclock --systohc
+sed -i 's/#en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen
+locale-gen
+echo "LANG=en_US.UTF-8" > /etc/locale.conf
+echo "Foolish" > /etc/hostname
+
+#[TEMPORARY USER CREATION & SECURE PASSWORD INJECTION] [B]
+useradd -m -G wheel -s /bin/bash "$USERNAME"
+echo "$USERNAME:$USER_PASSWORD" | chpasswd
+echo "root:$USER_PASSWORD" | chpasswd
+echo "%wheel ALL=(ALL:ALL) NOPASSWD: ALL" >> /etc/sudoers
+
+#[YAY ESTABLISHMENT] [C]
+sudo -u "$USERNAME" bash -c "cd ~ && git clone --depth=1 https://aur.archlinux.org/yay-bin.git && cd yay-bin && makepkg -si --noconfirm"
+
+#[PACKAGE INSTALLATION] [D]
+PACKAGES_FILE="/root/packages.json"
+if [ -f "\$PACKAGES_FILE" ]; then
+    ALL_PKGS=\$(jq -r '.[]' "\$PACKAGES_FILE" | tr '\n' ' ')
+    sudo -u "$USERNAME" yay -S --needed --noconfirm \$ALL_PKGS
+fi
+
+#[ZSH] [E]
+chsh -s /usr/bin/zsh "$USERNAME"
+touch "/home/$USERNAME/.zshrc"
+chown "$USERNAME:$USERNAME" "/home/$USERNAME/.zshrc"
+
+#[BOOTLOADER] [F]
+refind-install
+mkdir -p /boot/efi/EFI/refind/drivers_x64
+if [ -f /usr/share/refind/drivers_x64/btrfs_x64.efi ]; then
+    cp /usr/share/refind/drivers_x64/btrfs_x64.efi /boot/efi/EFI/refind/drivers_x64/
+fi
+TARGET_UUID=\$(blkid -s UUID -o value "$ROOT_PART")
+cat << EOF_REFIND > /boot/refind_linux.conf
+"Boot to SwayFX"    "root=UUID=\${TARGET_UUID} rw rootflags=subvol=@ initrd=/@/boot/initramfs-linux.img $NVIDIA_PARAM"
+"Boot Fallback"     "root=UUID=\${TARGET_UUID} rw rootflags=subvol=@ initrd=/@/boot/initramfs-linux-fallback.img $NVIDIA_PARAM"
+EOF_REFIND
+git clone https://github.com/CriticalPulsar/refind-efifetch /boot/efi/EFI/refind/themes/refind-efifetch
+echo "include themes/refind-efifetch/theme.conf" >> /boot/efi/EFI/refind/refind.conf
+
+#[FOOLISH ALTERATION SCRIPT FETCHING] [G]
+mkdir -p "/home/$USERNAME/Foolish-Alteration"
+if ! curl -fsLo "/home/$USERNAME/Foolish-Alteration/Foolish_Alteration.py" "https://raw.githubusercontent.com/MichaelWard405/Foolish-Alteration/master/Foolish_Alteration.py"; then
+    echo "print('ERROR: The online script failed to download. Please check your repository URL or Branch Name!')" > "/home/$USERNAME/Foolish-Alteration/Foolish_Alteration.py"
+fi
+chmod +x "/home/$USERNAME/Foolish-Alteration/Foolish_Alteration.py"
+chown -R "$USERNAME:$USERNAME" "/home/$USERNAME/Foolish-Alteration"
+
+#[SWAY CONFIG] [H]
+mkdir -p "/home/$USERNAME/.config/sway"
+cat << 'EOF_SWAY' > "/home/$USERNAME/.config/sway/config"
+# ==================
+#  SwayFX Temp File
+# ==================
+blur enable
+blur_passes 3
+blur_radius 5
+corner_radius 10
+shadows enable
+shadow_blur_radius 15
+shadow_color #0000007F
+
+default_border pixel 2
+default_floating_border pixel 2
+client.focused          #33ccff #33ccff #ffffff #33ccff #33ccff
+client.focused_inactive #595959 #595959 #ffffff #595959 #595959
+client.unfocused        #595959 #595959 #ffffff #595959 #595959
+
+input * {
+    xkb_layout "us"
+}
+
+exec sh -c "sleep 2 && kitty --hold -e bash -c 'cd /home/FOOL/Foolish-Alteration/ && python3 Foolish_Alteration.py'"
+EOF_SWAY
+
+sed -i "s/FOOL/$USERNAME/g" "/home/$USERNAME/.config/sway/config"
+chown -R "$USERNAME:$USERNAME" "/home/$USERNAME/.config"
+
+#[NETWORKING] [I]
+mkdir -p /etc/NetworkManager/system-connections
+cat << EOF_NM > /etc/NetworkManager/system-connections/Wired-Fallback.nmconnection
+[connection]
+id=Wired-Fallback
+type=ethernet
+autoconnect=true
+[ipv4]
+method=auto
+[ipv6]
+method=auto
+EOF_NM
+chmod 600 /etc/NetworkManager/system-connections/Wired-Fallback.nmconnection
+
+if [ -n "$WIFI_SSID" ]; then
+cat << EOF_WIFI > /etc/NetworkManager/system-connections/${WIFI_SSID}.nmconnection
+[connection]
+id=${WIFI_SSID}
+type=wifi
+autoconnect=true
+[wifi]
+mode=infrastructure
+ssid=${WIFI_SSID}
+[wifi-security]
+auth-alg=open
+key-mgmt=wpa-psk
+psk=${WIFI_PASS}
+[ipv4]
+method=auto
+[ipv6]
+method=auto
+EOF_WIFI
+chmod 600 /etc/NetworkManager/system-connections/${WIFI_SSID}.nmconnection
+fi
+
+systemctl daemon-reload
+systemctl enable NetworkManager
+systemctl enable ly@tty2.service
+systemctl disable getty@tty2.service
+EOF
