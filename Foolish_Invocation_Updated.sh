@@ -45,7 +45,7 @@ TIMEZONE="Australia/Brisbane"
 #==========================
 # Step 1 - Credentials [3]
 #==========================
-print_header"Step 1: Credentials"
+print_header "Step 1: Credentials"
 #[SET USER DETAILS] [A]
 #[Set UserName]
 read -p "Enter Desired Name Default: [FOOL]: " INPUT_USER
