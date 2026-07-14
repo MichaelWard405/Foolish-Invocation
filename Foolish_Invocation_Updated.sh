@@ -154,10 +154,10 @@ fi
 print_header "Step 4: Formatting & Mounting"
 #[UNMOUNT] [A]
 umount -q -R /mnt 2>/dev/null || true
-umount -q "$EFI_PART" 2/dev/null || true
+umount -q "$EFI_PART" 2>/dev/null || true
 
 #[MAKE DIRECTORY] [B]
-mkfs.btrfs -f "ROOT_PART"
+mkfs.btrfs -f "$ROOT_PART"
 mkfs.fat -F 32 -n "BOOT" "$EFI_PART"
 
 #[SUBVOLUME CREATION] [C]
@@ -171,7 +171,7 @@ umount /mnt
 BTRFS_OPTS="noatime,compress=zstd,space_cache=v2"
 
 #[SUBVOLUME MOUNTING] [D]
-mount -o "BTRFS_OPTS",subvol=@ "ROOT_PART" /mnt
+mount -o "$BTRFS_OPTS",subvol=@ "$ROOT_PART" /mnt
 mkdir -p /mnt/{home,var/log,var/cache/pacman/pkg,.snapshots,boot/efi}
 mount -o "$BTRFS_OPTS",subvol=@home "$ROOT_PART" /mnt/home
 mount -o "$BTRFS_OPTS",subvol=@log "$ROOT_PART" /mnt/var/log
@@ -301,7 +301,7 @@ ssid=${WIFI_SSID}
 [wifi-security]
 auth-alg=open
 key-mgmt=wpa-psk
-psk=${WIFI_PASS}
+psk=${WIFI_PASSWORD}
 [ipv4]
 method=auto
 [ipv6]
