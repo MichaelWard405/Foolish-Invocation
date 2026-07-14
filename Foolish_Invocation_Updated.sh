@@ -89,9 +89,9 @@ if [ -n "$WIFI_SSID" ]; then
   log_info "WIFI Credentials Saved for Deployment"
 fi
 
-#==========================
+#==============================
 # Step 2 - Retrieval & GPU [4]
-#==========================
+#==============================
 print_header "Step 2: Retrieval"
 #[SYSTEM PACKAGE INSTALL] [A]
 if ! command -v jq &>/dev/null || ! command -v curl &>/dev/null; then
@@ -119,3 +119,31 @@ case $GPU_CHOICE in
 *) GPU_PKGS="mesa" ;;
 esac
 log_info "Selected: $GPU_PKGS"
+
+#==================================
+# Step 3 - Partition Selection [5]
+#==================================
+print_header "Step 3: Partition Selection"
+#[USER PARTITION SELECTION] [A]
+lsblk -dno NAME,SIZE,MODEL | grep -v "loop"
+read -p "Enter Target Disk: " DISK_PATH
+TARGET_DISK="${DISK_PATH:-$TARGET_DISK}"
+
+#[PARTITION VERIFY] [B]
+mapfile -t PART_PATH < <(lsblk -rno NAME,TYPE "$TARGET_DISK" | awk '$2=="part" {print "/dev/"$1}')
+if [ ${#PART_PATH[@]} -eq 0 ]; then
+  log_error "No Partition Found On $TARGET_DISK"
+fi
+for i in "${!PART_PATH[@]}"; do
+  PART_INFO=$(lsblk -dno SIZE,FSTYLE,LABEL "${PART_PATH[$i]}" | tr -s ' ')
+  echo "  [$((i + 1))] ${PART_PATH[$1]} -> ($PART_INFO)"
+done
+
+#[PARTITION DESIGNATION] [C]
+read -p "Select ROOT Partition [BTRFS]: " ROOT_IDX
+ROOT_PART="${PART_PATHS[$((ROOT_IDX - 1))]}"
+read -p "Select EFI Partition [FAT32]: " EFI_IDX
+EFI_PART="${PART_PATHS[$((EFI_IDX - 1))]}"
+if [ "$ROOT_PART" == "$EFI_PART" ]; then
+  log_error "Root & EFI Partitions Cannot Be The Same Device"
+fi
