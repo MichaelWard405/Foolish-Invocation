@@ -315,3 +315,12 @@ systemctl enable NetworkManager
 systemctl enable ly@tty2.service
 systemctl disable getty@tty2.service
 EOF
+
+#=======================
+# Step 7 - Finalize [9]
+#=======================
+print_header "Step 7: Finalize and Unmounting"
+rm -f packages.json
+umount -R /mnt
+log_info "Install [COMPLETED]"
+echo -e "${GREEN} 'Reboot' into new installed ENVIRONMENT"
