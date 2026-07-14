@@ -178,3 +178,12 @@ mount -o "$BTRFS_OPTS",subvol=@log "$ROOT_PART" /mnt/var/log
 mount -o "$BTRFS_OPTS",subvol=@pkg "$ROOT_PART" /mnt/var/cache/pacman/pkg
 mount -o "$BTRFS_OPTS",subvol=@snapshots "$ROOT_PART" /mnt/.snapshots
 mount -t vfat "$EFI_PART" /mnt/boot/efi
+
+#========================
+# Step 5 - BootStrap [7]
+#========================
+print_header "Step 5: Bootstrapping Base System"
+#[DOWNLOAD PACKAGES] [A]
+pacstrap -K /mnt base base-devel linux linux-firmware btrfs-progs git jq curl $GPU_PKGS
+genfstab -U /mnt >>/mnt/etc/fstab
+cp packages.json /mnt/root/
