@@ -136,7 +136,7 @@ if [ ${#PART_PATH[@]} -eq 0 ]; then
 fi
 for i in "${!PART_PATH[@]}"; do
   PART_INFO=$(lsblk -dno SIZE,FSTYPE,LABEL "${PART_PATH[$i]}" | tr -s ' ')
-  echo "  [$((i + 1))] ${PART_PATH[$1]} -> ($PART_INFO)"
+  echo "  [$((i + 1))] ${PART_PATH[$i]} -> ($PART_INFO)"
 done
 
 #[PARTITION DESIGNATION] [C]
