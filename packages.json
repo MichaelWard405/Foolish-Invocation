@@ -32,5 +32,6 @@
     "fd",
     "timeshift",
     "pipewire",
-    "wireplumber"
+    "wireplumber",
+    "fastfetch"
 ]
