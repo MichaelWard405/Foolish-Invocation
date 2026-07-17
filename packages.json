@@ -34,5 +34,6 @@
     "timeshift",
     "pipewire",
     "wireplumber",
-    "fastfetch"
+    "fastfetch",
+    "autotiling"
 ]
