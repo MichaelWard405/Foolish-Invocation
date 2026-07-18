@@ -35,5 +35,10 @@
     "pipewire",
     "wireplumber",
     "fastfetch",
-    "autotiling"
+    "autotiling",
+    "gtk-engine-murrine",
+    "xorg-xsetroot",
+    "nwg-look",
+    "hicolor-icon-theme",
+    "sfwbar"
 ]
