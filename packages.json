@@ -43,5 +43,7 @@
     "sfwbar",
     "zenity",
     "btop",
-    "pavucontrol"
+    "pavucontrol",
+    "blueman",
+    "power-profiles-daemon"
 ]
