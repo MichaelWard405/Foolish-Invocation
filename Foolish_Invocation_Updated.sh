@@ -106,15 +106,15 @@ print_header "Step 2.1: GPU Driver selection"
 echo "Select Your GPU drivers"
 echo "  [1] AMD"
 echo "  [2] Intel"
-echo "  [3] NVIDIA"
+echo "  [3] NVIDIA (Nouveau)"
 echo "  [4] VM / Generic"
 read -p "Enter Selection: " GPU_CHOICE
 case $GPU_CHOICE in
 1) GPU_PKGS="mesa vulkan-radeon xf86-video-amdgpu" ;;
 2) GPU_PKGS="mesa vulkan-intel xf86-video-intel" ;;
 3)
-  GPU_PKGS="nvidia-dkms nvidia-utils linux-headers"
-  NVIDIA_PARAM="nvidia_drm.modeset=1"
+  GPU_PKGS="mesa xf86-video-nouveau vulkan-nouveau"
+  NVIDIA_PARAM=""
   ;;
 *) GPU_PKGS="mesa" ;;
 esac
