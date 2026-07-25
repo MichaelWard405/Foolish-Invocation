@@ -195,7 +195,7 @@ print_header "Step 6: Chroot Config ENV"
 arch-chroot /mnt /bin/bash <<EOF
 set -e
 #[LOCALIZATION] [A]
-ln -sf /usr/share/zoneinfo/$TIMEZONE /etc/localtime
+ln -sf "/usr/share/zoneinfo/$TIMEZONE" /etc/localtime
 hwclock --systohc
 sed -i 's/#en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen
 locale-gen
@@ -290,7 +290,7 @@ EOF_NM
 chmod 600 /etc/NetworkManager/system-connections/Wired-Fallback.nmconnection
 
 if [ -n "$WIFI_SSID" ]; then
-cat << EOF_WIFI > /etc/NetworkManager/system-connections/${WIFI_SSID}.nmconnection
+cat << EOF_WIFI > "/etc/NetworkManager/system-connections/${WIFI_SSID}.nmconnection"
 [connection]
 id=${WIFI_SSID}
 type=wifi
@@ -307,7 +307,7 @@ method=auto
 [ipv6]
 method=auto
 EOF_WIFI
-chmod 600 /etc/NetworkManager/system-connections/${WIFI_SSID}.nmconnection
+chmod 600 "/etc/NetworkManager/system-connections/${WIFI_SSID}.nmconnection"
 fi
 
 systemctl daemon-reload
