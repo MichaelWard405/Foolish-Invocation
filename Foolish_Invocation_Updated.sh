@@ -32,7 +32,7 @@ CURRENT_STEP=0
 #[Selected Disk] [A]
 TARGET_DISK="${1:-/dev/sda}"
 #[RAW GITHUB PACKAGE JSON] [B]
-RAW_GITHUB_URL="https://raw.githubusercontent.com/MichaelWard405/Foolish-Invocation/master/packages.json"[cite: 3]
+RAW_GITHUB_URL="https://raw.githubusercontent.com/MichaelWard405/Foolish-Invocation/master/packages.json"
 #[GPU SELECTION] [C]
 GPU_PKGS=""
 NVIDIA_PARAM=""
@@ -57,7 +57,7 @@ fi
 # Helper function to save progress
 save_checkpoint() {
   local step_num="$1"
-  cat <<EOF > "$STATE_FILE"
+  cat <<EOF >"$STATE_FILE"
 CURRENT_STEP="$step_num"
 USERNAME="$USERNAME"
 USER_PASSWORD="$USER_PASSWORD"
@@ -199,8 +199,8 @@ fi
 if [ "$CURRENT_STEP" -lt 4 ]; then
   print_header "Step 4: Formatting & Mounting"
   #[UNMOUNT] [A]
-  umount -q -R /mnt 2>/dev/null || true[cite: 3]
-  umount -q "$EFI_PART" 2>/dev/null || true[cite: 3]
+  umount -q -R /mnt 2>/dev/null || true
+  umount -q "$EFI_PART" 2>/dev/null || true
 
   #[MAKE DIRECTORY] [B]
   mkfs.btrfs -f "$ROOT_PART"
@@ -265,7 +265,7 @@ echo "root:$USER_PASSWORD" | chpasswd
 echo "%wheel ALL=(ALL:ALL) NOPASSWD: ALL" >> /etc/sudoers
 
 #[YAY ESTABLISHMENT] [C]
-sudo -u "$USERNAME" bash -c "cd ~ && git clone --depth=1 https://aur.archlinux.org/yay-bin.git && cd yay-bin && makepkg -si --noconfirm"[cite: 3]
+sudo -u "$USERNAME" bash -c "cd ~ && git clone --depth=1 https://aur.archlinux.org/yay-bin.git && cd yay-bin && makepkg -si --noconfirm"
 
 #[PACKAGE INSTALLATION & VERIFICATION] [D]
 PACKAGES_FILE="/root/packages.json"
