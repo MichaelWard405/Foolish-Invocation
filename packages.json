@@ -45,5 +45,6 @@
     "blueman",
     "power-profiles-daemon",
     "brightnessctl",
-    "wl-clipboard"
+    "wl-clipboard",
+    "freedownloadmanager"
 ]
