@@ -24,12 +24,15 @@ log_error() {
 }
 
 #================
-# Parameters [2]
+# State & Parameters [2]
 #================
+STATE_FILE="/tmp/foolish_state.env"
+CURRENT_STEP=0
+
 #[Selected Disk] [A]
 TARGET_DISK="${1:-/dev/sda}"
 #[RAW GITHUB PACKAGE JSON] [B]
-RAW_GITHUB_URL="https://raw.githubusercontent.com/MichaelWard405/Foolish-Invocation/master/packages.json"
+RAW_GITHUB_URL="https://raw.githubusercontent.com/MichaelWard405/Foolish-Invocation/master/packages.json"[cite: 3]
 #[GPU SELECTION] [C]
 GPU_PKGS=""
 NVIDIA_PARAM=""
@@ -41,158 +44,211 @@ WIFI_SSID=""
 WIFI_PASSWORD=""
 #[LOCATION] [F]
 TIMEZONE="Australia/Brisbane"
+#[PARTITIONS] [G]
+ROOT_PART=""
+EFI_PART=""
+
+# Load previous state if it exists
+if [ -f "$STATE_FILE" ]; then
+  source "$STATE_FILE"
+  log_info "Found previous session. Resuming from Step $((CURRENT_STEP + 1))..."
+fi
+
+# Helper function to save progress
+save_checkpoint() {
+  local step_num="$1"
+  cat <<EOF > "$STATE_FILE"
+CURRENT_STEP="$step_num"
+USERNAME="$USERNAME"
+USER_PASSWORD="$USER_PASSWORD"
+TIMEZONE="$TIMEZONE"
+WIFI_SSID="$WIFI_SSID"
+WIFI_PASSWORD="$WIFI_PASSWORD"
+TARGET_DISK="$TARGET_DISK"
+ROOT_PART="$ROOT_PART"
+EFI_PART="$EFI_PART"
+GPU_PKGS="$GPU_PKGS"
+NVIDIA_PARAM="$NVIDIA_PARAM"
+EOF
+}
 
 #==========================
 # Step 1 - Credentials [3]
 #==========================
-print_header "Step 1: Credentials"
-#[SET USER DETAILS] [A]
-#[Set UserName]
-read -p "Enter Desired Name Default: [FOOL]: " INPUT_USER
-USERNAME="${INPUT_USER:-FOOL}"
-#[Set PassWord]
-while true; do
-  read -s -p "Enter Desired PassWord for $USERNAME & ROOT: " USER_PASSWORD
+if [ "$CURRENT_STEP" -lt 1 ]; then
+  print_header "Step 1: Credentials"
+  #[SET USER DETAILS] [A]
+  #[Set UserName]
+  read -p "Enter Desired Name Default: [FOOL]: " INPUT_USER
+  USERNAME="${INPUT_USER:-FOOL}"
+  #[Set PassWord]
+  while true; do
+    read -s -p "Enter Desired PassWord for $USERNAME & ROOT: " USER_PASSWORD
+    echo ""
+    read -s -p "Confirm Stated PassWord: " USER_PASSWORD_CONFIRM
+    echo ""
+    if [ "$USER_PASSWORD" == "$USER_PASSWORD_CONFIRM" ] && [ -n "$USER_PASSWORD" ]; then
+      log_info "PassWord [CONFIRMED]"
+      break
+    else
+      echo -e "${RED}PassWord [FAILED] ${NC}"
+    fi
+  done
   echo ""
-  read -s -p "Confirm Stated PassWord: " USER_PASSWORD_CONFIRM
+
+  #[TIMEZONE SELECTION] [B]
+  echo "Select TimeZone:"
+  echo "  [1] Australia/Brisbane"
+  echo "  [2] Asia/Tokyo"
+  echo "  [3] Custom"
+  read -p "Enter SELECTION: " TZ_CHOICE
+  case ${TZ_CHOICE:-1} in
+  1) TIMEZONE="Australia/Brisbane" ;;
+  2) TIMEZONE="Asia/Tokyo" ;;
+  3) read -p "Enter Your TimeZone: " TIMEZONE ;;
+  *) TIMEZONE="Australia/Brisbane" ;;
+  esac
+  log_info "TIMEZONE: $TIMEZONE"
   echo ""
-  if [ "$USER_PASSWORD" == "$USER_PASSWORD_CONFIRM" ] && [ -n "$USER_PASSWORD" ]; then
-    log_info "PassWord [CONFIRMED]"
-    break
-  else
-    echo -e "${RED}PassWord [FAILED] ${NC}"
+
+  #[SET WIFI DETAILS] [C]
+  log_info "[OPTIONAL] Wireless Setup"
+  read -p "Enter WIFI Name [SSID]: " WIFI_SSID
+  if [ -n "$WIFI_SSID" ]; then
+    read -s -p "Enter WIFI PassWord: " WIFI_PASSWORD
+    echo ""
+    log_info "WIFI Credentials Saved for Deployment"
   fi
-done
-echo ""
-
-#[TIMEZONE SELECTION] [B]
-echo "Select TimeZone:"
-echo "  [1] Australia/Brisbane"
-echo "  [2] Asia/Tokyo"
-echo "  [3] Custom"
-read -p "Enter SELECTION: " TZ_CHOICE
-case ${TZ_CHOICE:-1} in
-1) TIMEZONE="Australia/Brisbane" ;;
-2) TIMEZONE="Asia/Tokyo" ;;
-3) read -p "Enter Your TimeZone: " TIMEZONE ;;
-*) TIMEZONE="Australia/Brisbane" ;;
-esac
-log_info "TIMEZONE: $TIMEZONE"
-echo ""
-
-#[SET WIFI DETAILS] [C]
-log_info "[OPTIONAL] Wireless Setup"
-read -p "Enter WIFI Name [SSID]: " WIFI_SSID
-if [ -n "$WIFI_SSID" ]; then
-  read -s -p "Enter WIFI PassWord: " WIFI_PASSWORD
-  echo ""
-  log_info "WIFI Credentials Saved for Deployment"
+  save_checkpoint 1
+else
+  log_info "Skipping Step 1 (Already Completed)"
 fi
 
 #==============================
 # Step 2 - Retrieval & GPU [4]
 #==============================
-print_header "Step 2: Retrieval"
-#[SYSTEM PACKAGE INSTALL] [A]
-if ! command -v jq &>/dev/null || ! command -v curl &>/dev/null; then
-  pacman -Sy --noconfirm jq curl || log_error "Failed To Install Dependencies"
+if [ "$CURRENT_STEP" -lt 2 ]; then
+  print_header "Step 2: Retrieval"
+  #[SYSTEM PACKAGE INSTALL] [A]
+  if ! command -v jq &>/dev/null || ! command -v curl &>/dev/null; then
+    pacman -Sy --noconfirm jq curl || log_error "Failed To Install Dependencies"
+  fi
+  curl -sL "$RAW_GITHUB_URL" -o "packages.json"
+  if [ ! -f "packages.json" ] || ! jq . "packages.json" >/dev/null 2>&1; then
+    log_error "[ERROR] Failed to Install Packages"
+  fi
+  #[GPU SELECTION] [B]
+  print_header "Step 2.1: GPU Driver selection"
+  echo "Select Your GPU drivers"
+  echo "  [1] AMD"
+  echo "  [2] Intel"
+  echo "  [3] NVIDIA (Nouveau)"
+  echo "  [4] VM / Generic"
+  read -p "Enter Selection: " GPU_CHOICE
+  case $GPU_CHOICE in
+  1) GPU_PKGS="mesa vulkan-radeon xf86-video-amdgpu" ;;
+  2) GPU_PKGS="mesa vulkan-intel xf86-video-intel" ;;
+  3)
+    GPU_PKGS="mesa xf86-video-nouveau vulkan-nouveau"
+    NVIDIA_PARAM=""
+    ;;
+  *) GPU_PKGS="mesa" ;;
+  esac
+  log_info "Selected: $GPU_PKGS"
+  save_checkpoint 2
+else
+  log_info "Skipping Step 2 (Already Completed)"
 fi
-curl -sL "$RAW_GITHUB_URL" -o "packages.json"
-if [ ! -f "packages.json" ] || ! jq . "packages.json" >/dev/null 2>&1; then
-  log_error "[ERROR] Failed to Install Packages"
-fi
-#[GPU SELECTION] [B]
-print_header "Step 2.1: GPU Driver selection"
-echo "Select Your GPU drivers"
-echo "  [1] AMD"
-echo "  [2] Intel"
-echo "  [3] NVIDIA (Nouveau)"
-echo "  [4] VM / Generic"
-read -p "Enter Selection: " GPU_CHOICE
-case $GPU_CHOICE in
-1) GPU_PKGS="mesa vulkan-radeon xf86-video-amdgpu" ;;
-2) GPU_PKGS="mesa vulkan-intel xf86-video-intel" ;;
-3)
-  GPU_PKGS="mesa xf86-video-nouveau vulkan-nouveau"
-  NVIDIA_PARAM=""
-  ;;
-*) GPU_PKGS="mesa" ;;
-esac
-log_info "Selected: $GPU_PKGS"
 
 #==================================
 # Step 3 - Partition Selection [5]
 #==================================
-print_header "Step 3: Partition Selection"
-#[USER PARTITION SELECTION] [A]
-lsblk -dno NAME,SIZE,MODEL | grep -v "loop"
-read -p "Enter Target Disk: " DISK_PATH
-TARGET_DISK="${DISK_PATH:-$TARGET_DISK}"
+if [ "$CURRENT_STEP" -lt 3 ]; then
+  print_header "Step 3: Partition Selection"
+  #[USER PARTITION SELECTION] [A]
+  lsblk -dno NAME,SIZE,MODEL | grep -v "loop"
+  read -p "Enter Target Disk: " DISK_PATH
+  TARGET_DISK="${DISK_PATH:-$TARGET_DISK}"
 
-#[PARTITION VERIFY] [B]
-mapfile -t PART_PATH < <(lsblk -rno NAME,TYPE "$TARGET_DISK" | awk '$2=="part" {print "/dev/"$1}')
-if [ ${#PART_PATH[@]} -eq 0 ]; then
-  log_error "No Partition Found On $TARGET_DISK"
-fi
-for i in "${!PART_PATH[@]}"; do
-  PART_INFO=$(lsblk -dno SIZE,FSTYPE,LABEL "${PART_PATH[$i]}" | tr -s ' ')
-  echo "  [$((i + 1))] ${PART_PATH[$i]} -> ($PART_INFO)"
-done
+  #[PARTITION VERIFY] [B]
+  mapfile -t PART_PATH < <(lsblk -rno NAME,TYPE "$TARGET_DISK" | awk '$2=="part" {print "/dev/"$1}')
+  if [ ${#PART_PATH[@]} -eq 0 ]; then
+    log_error "No Partition Found On $TARGET_DISK"
+  fi
+  for i in "${!PART_PATH[@]}"; do
+    PART_INFO=$(lsblk -dno SIZE,FSTYPE,LABEL "${PART_PATH[$i]}" | tr -s ' ')
+    echo "  [$((i + 1))] ${PART_PATH[$i]} -> ($PART_INFO)"
+  done
 
-#[PARTITION DESIGNATION] [C]
-read -p "Select ROOT Partition [BTRFS]: " ROOT_IDX
-ROOT_PART="${PART_PATH[$((ROOT_IDX - 1))]}"
-read -p "Select EFI Partition [FAT32]: " EFI_IDX
-EFI_PART="${PART_PATH[$((EFI_IDX - 1))]}"
-if [ "$ROOT_PART" == "$EFI_PART" ]; then
-  log_error "Root & EFI Partitions Cannot Be The Same Device"
+  #[PARTITION DESIGNATION] [C]
+  read -p "Select ROOT Partition [BTRFS]: " ROOT_IDX
+  ROOT_PART="${PART_PATH[$((ROOT_IDX - 1))]}"
+  read -p "Select EFI Partition [FAT32]: " EFI_IDX
+  EFI_PART="${PART_PATH[$((EFI_IDX - 1))]}"
+  if [ "$ROOT_PART" == "$EFI_PART" ]; then
+    log_error "Root & EFI Partitions Cannot Be The Same Device"
+  fi
+  save_checkpoint 3
+else
+  log_info "Skipping Step 3 (Already Completed)"
 fi
 
 #====================================
 # Step 4 - Formatting & Mounting [6]
 #====================================
-print_header "Step 4: Formatting & Mounting"
-#[UNMOUNT] [A]
-umount -q -R /mnt 2>/dev/null || true
-umount -q "$EFI_PART" 2>/dev/null || true
+if [ "$CURRENT_STEP" -lt 4 ]; then
+  print_header "Step 4: Formatting & Mounting"
+  #[UNMOUNT] [A]
+  umount -q -R /mnt 2>/dev/null || true[cite: 3]
+  umount -q "$EFI_PART" 2>/dev/null || true[cite: 3]
 
-#[MAKE DIRECTORY] [B]
-mkfs.btrfs -f "$ROOT_PART"
-mkfs.fat -F 32 -n "BOOT" "$EFI_PART"
+  #[MAKE DIRECTORY] [B]
+  mkfs.btrfs -f "$ROOT_PART"
+  mkfs.fat -F 32 -n "BOOT" "$EFI_PART"
 
-#[SUBVOLUME CREATION] [C]
-mount "$ROOT_PART" /mnt
-btrfs subvolume create /mnt/@
-btrfs subvolume create /mnt/@home
-btrfs subvolume create /mnt/@log
-btrfs subvolume create /mnt/@pkg
-btrfs subvolume create /mnt/@snapshots
-umount /mnt
-BTRFS_OPTS="noatime,compress=zstd,space_cache=v2"
+  #[SUBVOLUME CREATION] [C]
+  mount "$ROOT_PART" /mnt
+  btrfs subvolume create /mnt/@
+  btrfs subvolume create /mnt/@home
+  btrfs subvolume create /mnt/@log
+  btrfs subvolume create /mnt/@pkg
+  btrfs subvolume create /mnt/@snapshots
+  umount /mnt
+  BTRFS_OPTS="noatime,compress=zstd,space_cache=v2"
 
-#[SUBVOLUME MOUNTING] [D]
-mount -o "$BTRFS_OPTS",subvol=@ "$ROOT_PART" /mnt
-mkdir -p /mnt/{home,var/log,var/cache/pacman/pkg,.snapshots,boot/efi}
-mount -o "$BTRFS_OPTS",subvol=@home "$ROOT_PART" /mnt/home
-mount -o "$BTRFS_OPTS",subvol=@log "$ROOT_PART" /mnt/var/log
-mount -o "$BTRFS_OPTS",subvol=@pkg "$ROOT_PART" /mnt/var/cache/pacman/pkg
-mount -o "$BTRFS_OPTS",subvol=@snapshots "$ROOT_PART" /mnt/.snapshots
-mount -t vfat "$EFI_PART" /mnt/boot/efi
+  #[SUBVOLUME MOUNTING] [D]
+  mount -o "$BTRFS_OPTS",subvol=@ "$ROOT_PART" /mnt
+  mkdir -p /mnt/{home,var/log,var/cache/pacman/pkg,.snapshots,boot/efi}
+  mount -o "$BTRFS_OPTS",subvol=@home "$ROOT_PART" /mnt/home
+  mount -o "$BTRFS_OPTS",subvol=@log "$ROOT_PART" /mnt/var/log
+  mount -o "$BTRFS_OPTS",subvol=@pkg "$ROOT_PART" /mnt/var/cache/pacman/pkg
+  mount -o "$BTRFS_OPTS",subvol=@snapshots "$ROOT_PART" /mnt/.snapshots
+  mount -t vfat "$EFI_PART" /mnt/boot/efi
+  save_checkpoint 4
+else
+  log_info "Skipping Step 4 (Already Completed)"
+fi
 
 #========================
 # Step 5 - BootStrap [7]
 #========================
-print_header "Step 5: Bootstrapping Base System"
-#[DOWNLOAD PACKAGES] [A]
-pacstrap -K /mnt base base-devel linux linux-firmware btrfs-progs git jq curl $GPU_PKGS
-genfstab -U /mnt >>/mnt/etc/fstab
-cp packages.json /mnt/root/
+if [ "$CURRENT_STEP" -lt 5 ]; then
+  print_header "Step 5: Bootstrapping Base System"
+  #[DOWNLOAD PACKAGES] [A]
+  pacstrap -K /mnt base base-devel linux linux-firmware btrfs-progs git jq curl $GPU_PKGS
+  genfstab -U /mnt >>/mnt/etc/fstab
+  cp packages.json /mnt/root/
+  save_checkpoint 5
+else
+  log_info "Skipping Step 5 (Already Completed)"
+fi
 
 #============================
 # Step 6 - Chroot Config [8]
 #============================
-print_header "Step 6: Chroot Config ENV"
-arch-chroot /mnt /bin/bash <<EOF
+if [ "$CURRENT_STEP" -lt 6 ]; then
+  print_header "Step 6: Chroot Config ENV"
+  arch-chroot /mnt /bin/bash <<EOF
 set -e
 #[LOCALIZATION] [A]
 ln -sf "/usr/share/zoneinfo/$TIMEZONE" /etc/localtime
@@ -209,13 +265,46 @@ echo "root:$USER_PASSWORD" | chpasswd
 echo "%wheel ALL=(ALL:ALL) NOPASSWD: ALL" >> /etc/sudoers
 
 #[YAY ESTABLISHMENT] [C]
-sudo -u "$USERNAME" bash -c "cd ~ && git clone --depth=1 https://aur.archlinux.org/yay-bin.git && cd yay-bin && makepkg -si --noconfirm"
+sudo -u "$USERNAME" bash -c "cd ~ && git clone --depth=1 https://aur.archlinux.org/yay-bin.git && cd yay-bin && makepkg -si --noconfirm"[cite: 3]
 
-#[PACKAGE INSTALLATION] [D]
+#[PACKAGE INSTALLATION & VERIFICATION] [D]
 PACKAGES_FILE="/root/packages.json"
 if [ -f "\$PACKAGES_FILE" ]; then
     ALL_PKGS=\$(jq -r '.[]' "\$PACKAGES_FILE" | tr '\n' ' ')
     sudo -u "$USERNAME" yay -S --needed --noconfirm \$ALL_PKGS
+    
+    # --- VERIFICATION BLOCK ---
+    echo -e "\n\033[0;34m==========================================\033[0m"
+    echo -e "\033[0;32m Package Verification \033[0m"
+    echo -e "\033[0;34m==========================================\033[0m"
+    MISSING_PKGS=""
+    for pkg in \$ALL_PKGS; do
+        if ! pacman -Q "\$pkg" >/dev/null 2>&1; then
+            MISSING_PKGS="\$MISSING_PKGS \$pkg"
+        fi
+    done
+    
+    if [ -n "\$MISSING_PKGS" ]; then
+        echo -e "\033[0;33m[WARN]\033[0m Missing packages detected:\$MISSING_PKGS"
+        echo -e "\033[0;32m[INFO]\033[0m Attempting to install missing packages..."
+        sudo -u "$USERNAME" yay -S --needed --noconfirm \$MISSING_PKGS
+        
+        # Final pass verification
+        STILL_MISSING=""
+        for pkg in \$MISSING_PKGS; do
+            if ! pacman -Q "\$pkg" >/dev/null 2>&1; then
+                STILL_MISSING="\$STILL_MISSING \$pkg"
+            fi
+        done
+        
+        if [ -n "\$STILL_MISSING" ]; then
+            echo -e "\033[0;31m[ERROR]\033[0m The following packages failed to install entirely:\$STILL_MISSING" >&2
+        else
+            echo -e "\033[0;32m[INFO]\033[0m All missing packages successfully installed on the second pass!"
+        fi
+    else
+        echo -e "\033[0;32m[INFO]\033[0m All packages verified successfully."
+    fi
 fi
 
 #[ZSH] [E]
@@ -315,12 +404,22 @@ systemctl enable NetworkManager
 systemctl enable ly@tty2.service
 systemctl disable getty@tty2.service
 EOF
+  save_checkpoint 6
+else
+  log_info "Skipping Step 6 (Already Completed)"
+fi
 
 #=======================
 # Step 7 - Finalize [9]
 #=======================
-print_header "Step 7: Finalize and Unmounting"
-rm -f packages.json
-umount -R /mnt
-log_info "Install [COMPLETED]"
-echo -e "${GREEN} 'Reboot' into new installed ENVIRONMENT"
+if [ "$CURRENT_STEP" -lt 7 ]; then
+  print_header "Step 7: Finalize and Unmounting"
+  rm -f packages.json
+  umount -R /mnt
+  # Remove state file upon successful completion
+  rm -f "$STATE_FILE"
+  log_info "Install [COMPLETED]"
+  echo -e "${GREEN} 'Reboot' into new installed ENVIRONMENT"
+else
+  log_info "Installation already fully completed! Reboot to enjoy your system."
+fi
