@@ -46,5 +46,7 @@
     "power-profiles-daemon",
     "brightnessctl",
     "wl-clipboard",
-    "freedownloadmanager"
+    "uget",
+    "aria2",
+    "uget-integrator"
 ]
