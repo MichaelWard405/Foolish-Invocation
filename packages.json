@@ -48,5 +48,6 @@
     "wl-clipboard",
     "uget",
     "aria2",
-    "uget-integrator"
+    "uget-integrator",
+    "polkit-gnome"
 ]
