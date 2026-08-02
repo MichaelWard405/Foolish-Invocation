@@ -1,12 +1,12 @@
-#Providence
+# Providence
 
 Providence is an GUI automated monolithic installer For Arch linux, Providence leverages Tauri, JavaScript/TypeScript, Rust and Bash to quickly deploy the GUI installer and handle the creation of a Arch Install, it handles the setting of initial WI-FI Connection, installation of required Packages User Setup and System Setup, to simplify and greatly accelerate the Installation Of Arch and is bundled with [Foolish](https://github.com/MichaelWard405/Foolish-Alteration) to be deployed following the completion of Providence allowing the User to select additive packages and the layout and theme of the installed Arch Operating System.
 
-###Why to use Providence:
+### Why to use Providence:
 
-###The Goal and Future of Providence:
+### The Goal and Future of Providence:
 
-##Features:
+## Features:
 
 - Installation Checkpoints: Each Step Of the Back End installation is checkpointed so in the case of a crash or network loss, Providence will noy loss progress.
 
@@ -16,12 +16,12 @@ Providence is an GUI automated monolithic installer For Arch linux, Providence l
 
 ## Planned Features:
 
-1 
+- 
 
-##Providence BreakDown:
+## Providence BreakDown:
 
-##[Monolithic Theme Installer/Controller Foolish](https://github.com/MichaelWard405/Foolish-Alteration) BreakDown of usage in Providence
+## [Monolithic Theme Installer/Controller Foolish](https://github.com/MichaelWard405/Foolish-Alteration) BreakDown of usage in Providence
 
-##Promise File System and format type BreakDown of usage in Providence
+## Promise File System and format type BreakDown of usage in Providence
 
 
