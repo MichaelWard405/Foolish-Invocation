@@ -18,6 +18,8 @@ Providence is an GUI automated monolithic installer For Arch linux, Providence l
 
 - 
 
+## Installation Process:
+
 ## Providence BreakDown:
 
 ## [Monolithic Theme Installer/Controller Foolish](https://github.com/MichaelWard405/Foolish-Alteration) BreakDown of usage in Providence
