@@ -46,8 +46,6 @@
     "power-profiles-daemon",
     "brightnessctl",
     "wl-clipboard",
-    "uget",
-    "aria2",
-    "uget-integrator",
+    "freedownloadmanager-bin",
     "polkit-gnome"
 ]
